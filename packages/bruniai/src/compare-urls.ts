@@ -61,8 +61,6 @@ export async function compareUrls(
       imagesDir,
       prNumber: input.prNumber,
       repository: input.repository,
-      prTitle: input.prTitle,
-      prDescription: input.prDescription,
     });
 
     // Build output structure.
