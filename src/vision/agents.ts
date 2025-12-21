@@ -32,7 +32,8 @@ export async function analyzeBaseUrlAgent(
     `\n${"=".repeat(50)}\n🔍 Agent 1: Analyzing Base URL\n${"=".repeat(50)}`
   );
 
-  const page = stagehand.context.pages()[0];
+  // Create a fresh page for this analysis to ensure complete isolation.
+  const page = await stagehand.context.newPage();
   await page.goto(base_url, {
     waitUntil: "networkidle",
     timeoutMs: 60000,
@@ -78,8 +79,13 @@ export async function analyzeBaseUrlAgent(
 
   const result = await stagehand.extract(
     systemPrompt,
-    BaseUrlAnalysisResultSchema
+    BaseUrlAnalysisResultSchema,
+    { page }
   );
+
+  // Close the page to prevent context leakage.
+  await page.close();
+
   return result;
 }
 
@@ -105,7 +111,8 @@ export async function analyzePreviewUrlAgent(
     `\n${"=".repeat(50)}\n🔍 Agent 2: Analyzing Preview URL\n${"=".repeat(50)}`
   );
 
-  const page = stagehand.context.pages()[0];
+  // Create a fresh page for this analysis to ensure complete isolation.
+  const page = await stagehand.context.newPage();
   await page.goto(preview_url, {
     waitUntil: "networkidle",
     timeoutMs: 60000,
@@ -162,8 +169,13 @@ export async function analyzePreviewUrlAgent(
 
   const result = await stagehand.extract(
     systemPrompt,
-    PreviewUrlAnalysisResultSchema
+    PreviewUrlAnalysisResultSchema,
+    { page }
   );
+
+  // Close the page to prevent context leakage.
+  await page.close();
+
   return result;
 }
 
@@ -219,7 +231,8 @@ export async function analyzeImagesAgent(
   writeFileSync(tempHtmlPath, comparisonHtml, "utf-8");
 
   try {
-    const page = stagehand.context.pages()[0];
+    // Create a fresh page for this analysis to ensure complete isolation.
+    const page = await stagehand.context.newPage();
     await page.goto(`file://${tempHtmlPath}`, {
       waitUntil: "networkidle",
       timeoutMs: 30000,
@@ -329,8 +342,12 @@ export async function analyzeImagesAgent(
 
     const result = await stagehand.extract(
       systemPrompt,
-      ImageAnalysisResultSchema
+      ImageAnalysisResultSchema,
+      { page }
     );
+
+    // Close the page to prevent context leakage.
+    await page.close();
 
     return result;
   } finally {
