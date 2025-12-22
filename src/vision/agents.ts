@@ -270,7 +270,7 @@ export async function analyzeImagesAgent(
 
       **MOST IMPORTANT RULE:**
       Before reporting ANY visual differences, you MUST first check the DIFF IMAGE (right panel) for RED pixels.
-      - If you see RED pixels/areas → describe what those red areas show
+      - If you see RED pixels/areas → describe what those red areas show and diff_highlights must have at least one item in the array.
       - If you see NO RED pixels → diff_highlights MUST be [] (empty) and visual_changes_enum MUST be "none"
 
       **CRITICAL RULES - FOLLOW STRICTLY:**
@@ -298,7 +298,7 @@ export async function analyzeImagesAgent(
           },
           "critical_issues_enum": "none" | "missing_sections" | "other_issues",
           "visual_changes": {
-              "diff_highlights": ["List any visual differences between the BASE SCREENSHOT and the PR SCREENSHOT. If NO red is visible anywhere in the DIFF IMAGE, this array MUST be empty: []."],
+              "diff_highlights": ["List any visual differences between the BASE SCREENSHOT and the PR SCREENSHOT. If NO red is visible anywhere in the DIFF IMAGE, this array MUST be empty: [] otherwise if there is any red visible, describe what those red areas show and diff_highlights must have at least one item in the array."],
               "animation_issues": "Description of any animation-related findings",
               "conclusion": "Overall conclusion about visual changes. If no red is visible in DIFF IMAGE, state 'No visual differences detected - diff image shows no red highlights'"
           },
