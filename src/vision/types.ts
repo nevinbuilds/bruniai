@@ -154,4 +154,3 @@ export const ImageAnalysisResultSchema = z.object({
 });
 
 export type ImageAnalysisResult = z.infer<typeof ImageAnalysisResultSchema>;
-

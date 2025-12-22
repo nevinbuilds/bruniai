@@ -123,7 +123,9 @@ export async function analyzePreviewUrlAgent(
     .join("\n");
 
   const systemPrompt = `
-    You are analyzing the PREVIEW URL (changed/new version) of a website.
+    You are a visual differences analyzer. You are visiting a webpage that includes a screenshot of the base URL and a screenshot of the preview URL and a screenshot of the diff image.
+    Together with this information, you are also given a list of sections that are present in the base URL and you should use this information to analyze the visual differences between the base URL and the preview URL.
+    The structure of the webpage should follow the structure given in the section analysis.
 
     Your task is to:
     1. Check if each section from the base URL is present in this preview URL
@@ -131,6 +133,8 @@ export async function analyzePreviewUrlAgent(
     3. Document structural changes compared to the base URL
     4. Note layout changes and element repositioning
     5. Identify any broken layouts
+    6. Avoid small differences and especially differences that are just a result of differences from sections above. Try as much as possible to analyze section
+    by
 
     Reference sections from BASE URL:
     ${baseSectionsList}
@@ -238,55 +242,25 @@ export async function analyzeImagesAgent(
       timeoutMs: 30000,
     });
 
-    const systemPrompt = `
-      You are analyzing three screenshot images displayed side-by-side on this page:
+    // Create a Computer Use Agent for visual understanding.
+    const agent = stagehand.agent({
+      model: "openai/gpt-4.1-mini",
+      systemPrompt: `You are an expert visual analysis assistant specializing in comparing website screenshots and identifying visual differences, missing sections, and layout issues. You must respond with valid JSON only.`,
+    });
 
-      1. BASE_SCREENSHOT (left panel) - The reference/expected version from ${base_url}
-         - CSS selector: .image-panel.base-image
-         - Position: Leftmost panel
+    // Use the agent to visually analyze the images and return structured JSON.
+    const agentInstruction = `
+      Analyze the three screenshot images displayed side-by-side on this page:
 
-      2. PR_SCREENSHOT (middle panel) - The changed/new version from ${preview_url}
-         - CSS selector: .image-panel.pr-image
-         - Position: Middle panel
+      1. BASE_SCREENSHOT (left panel, .image-panel.base-image) - The reference/expected version from ${base_url}
+      2. PR_SCREENSHOT (middle panel, .image-panel.pr-image) - The changed/new version from ${preview_url}
+      3. DIFF_IMAGE (right panel, .image-panel.diff-image) - Shows differences highlighted in RED pixels
 
-      3. DIFF_IMAGE (right panel) - This image shows differences highlighted in RED
-         - CSS selector: .image-panel.diff-image
-         - Position: Rightmost panel
-         - **CRITICAL**: This image uses RED pixels/areas to highlight ONLY the actual differences
-         - If this image shows NO red pixels anywhere, there are NO visual differences, if it shows red pixels, then there are visual differences (not necessarily critical, but there are changes).
-
-      **MOST IMPORTANT RULE**:
-      Before reporting ANY visual differences, you MUST first check the DIFF IMAGE (right panel) for RED pixels.
-      - If you see RED pixels/areas → describe what those red areas show
-      - If you see NO RED pixels → diff_highlights MUST be [] (empty) and visual_changes_enum MUST be "none", but you must report that there are visual differences (not necessarily critical, but there are changes).
-
-      Your task is to perform a section per section analysis using the 3 images on the page (BASE_SCREENSHOT, PR_SCREENSHOT, DIFF_IMAGE) as the reference and the section analysis provided.
-      The criteria and basis for the analysis are described below:
-
-      1. Critical Issues :
-
-      1.1 For each section described in the section analysis, explicitly check if that section is visually present in the {PR_SCREENSHOT} and if its missing that is critical.
-      1.2 Identify missing sections (CRITICAL issue) and report them in the critical_issues section.
-
-      2. Visual Changes :
-
-      **CRITICAL VERIFICATION STEP - READ THIS FIRST:**
-      Before reporting ANY visual differences, you MUST:
-      1. Look at the DIFF IMAGE (right panel, .image-panel.diff-image)
-      2. Visually scan the entire DIFF IMAGE for ANY red pixels, red areas, or red highlights
-      3. If you see NO red pixels/areas anywhere in the DIFF IMAGE, then there are NO visual differences
-      4. If there is NO red visible, the diff_highlights array MUST be empty: []
-
-      2.1 ONLY if red pixels/areas are visible in the {DIFF_IMAGE}, identify what those red areas represent and report them in the visual_changes section.
-      2.2 If NO red is visible in the DIFF IMAGE, you MUST report an empty diff_highlights array: []
-      2.5 Note any animation-related findings and ignore them never flag something that is animating as a visual change.
-      2.6 Focus on structural and layout changes, not only minor text/styling changes or font rendering issues.
-      2.7 If the DIFF IMAGE shows no red pixels, there are NO visual changes - report "none" for visual_changes_enum and empty array for diff_highlights.
-      2.8 If the DIFF IMAGE has red pixels and areas, use your own judgement to determine what the visual differences are and report them in the visual_changes section.
-
-      3. Missing Sections :
-
-      3.1 Identify missing sections (CRITICAL issue) and report them in the missing_sections section.
+      **CRITICAL VERIFICATION STEPS:**
+      1. First, visually examine the DIFF IMAGE (right panel) for ANY red pixels or red areas
+      2. Check each section from the analysis to see if it's present in the PR_SCREENSHOT
+      3. Identify any missing sections (CRITICAL issue)
+      4. Analyze visual differences only if red pixels are visible in the DIFF IMAGE
 
       ${
         sections_analysis
@@ -294,7 +268,21 @@ export async function analyzeImagesAgent(
           : ""
       }
 
-      **IMPORTANT: You must respond with valid JSON only, following this exact structure:**
+      **MOST IMPORTANT RULE:**
+      Before reporting ANY visual differences, you MUST first check the DIFF IMAGE (right panel) for RED pixels.
+      - If you see RED pixels/areas → describe what those red areas show
+      - If you see NO RED pixels → diff_highlights MUST be [] (empty) and visual_changes_enum MUST be "none"
+
+      **CRITICAL RULES - FOLLOW STRICTLY:**
+      - FIRST: Look at the DIFF IMAGE (right panel) - do you see ANY red pixels or red areas?
+      - If NO red is visible anywhere in the DIFF IMAGE → diff_highlights MUST be [] (empty array) and visual_changes_enum MUST be "none"
+      - If YES red is visible → ONLY then describe what those red areas show in the diff_highlights section
+      - Missing sections are CRITICAL issues (check PR_SCREENSHOT for missing sections)
+      - Ignore small rendering differences in fonts and colors
+      - If a section animates or moves, note it but don't flag as visual regression
+      - Focus on structural and layout changes, not minor text/styling changes or font rendering issues
+
+      **IMPORTANT: You must respond with valid JSON only, following this exact structure. Return ONLY the JSON object, no additional text or markdown:**
 
       {
           "critical_issues": {
@@ -305,7 +293,6 @@ export async function analyzeImagesAgent(
                       "description": "Description of the section and its expected location/content if missing",
                       "section_id": "section_id_will_be_filled"
                   }
-                  ...
               ],
               "summary": "Summary of all critical issues found"
           },
@@ -325,26 +312,65 @@ export async function analyzeImagesAgent(
           ]
       }
 
-      Combine your capabilities of analyzing visual differences to combine the analysis provided by the section analysis and the visual differences provided by the 3 images on the page in order to detect as accurately as posisble
-      what happened to the website in the PR. Do not make assumptions, only report what you can see in the images but use your good judgement to analyze the changes and report them in the visual_changes section.
+      Combine your visual analysis capabilities to detect what happened to the website in the PR. Do not make assumptions, only report what you can see in the images but use your good judgement to analyze the changes and report them in the visual_changes section.
       Always keep in mind that differences in top sections can affect the entire diff image, so you must analyze the entire diff image to determine what the visual differences are.
       Use all 3 of the images and the section analysis to determine what the visual differences are and which ones are relevant to report.
 
-      **CRITICAL RULES - FOLLOW STRICTLY:**
-      - FIRST: Look at the DIFF IMAGE (right panel) - do you see ANY red pixels or red areas?
-      - If NO red is visible anywhere in the DIFF IMAGE → diff_highlights MUST be [] (empty array) and visual_changes_enum MUST be "none", but you must report that there are visual differences (not necessarily critical, but there are changes).
-      - If YES red is visible → ONLY then describe what those red areas show in the diff_highlights section.
-      - Missing sections are CRITICAL issues (check PR_SCREENSHOT for missing sections)
-      - Ignore small rendering differences in fonts and colors
-      - If a section animates or moves, note it but don't flag as visual regression
-      - If the DIFF IMAGE is completely black/white/gray with NO red, there are NO visual changes to report
+      **Return ONLY valid JSON matching the structure above.**
     `;
 
-    const result = await stagehand.extract(
-      systemPrompt,
-      ImageAnalysisResultSchema,
-      { page }
-    );
+    const resultAgent = await agent.execute({
+      instruction: agentInstruction,
+      maxSteps: 10,
+      highlightCursor: true,
+    });
+
+    // Extract JSON from agent response.
+    let agentResponse = "";
+    if (typeof resultAgent === "string") {
+      agentResponse = resultAgent;
+    } else if (resultAgent && typeof resultAgent === "object") {
+      // Handle different possible response structures.
+      agentResponse =
+        (resultAgent as any).message ||
+        (resultAgent as any).response ||
+        (resultAgent as any).text ||
+        JSON.stringify(resultAgent);
+    } else {
+      agentResponse = String(resultAgent);
+    }
+
+    // Extract JSON from the response (may be wrapped in markdown code blocks or text).
+    let jsonString = agentResponse.trim();
+
+    // Remove markdown code blocks if present.
+    const jsonMatch = jsonString.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+    if (jsonMatch) {
+      jsonString = jsonMatch[1];
+    } else {
+      // Try to find JSON object in the response.
+      const jsonObjectMatch = jsonString.match(/\{[\s\S]*\}/);
+      if (jsonObjectMatch) {
+        jsonString = jsonObjectMatch[0];
+      }
+    }
+
+    // Parse and validate JSON.
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(jsonString);
+    } catch (parseError) {
+      console.error("Failed to parse agent JSON response:", parseError);
+      console.error("Agent response:", agentResponse);
+      throw new Error(
+        `Failed to parse agent response as JSON: ${
+          parseError instanceof Error ? parseError.message : String(parseError)
+        }`
+      );
+    }
+
+    // Validate against schema.
+    const result = ImageAnalysisResultSchema.parse(parsedJson);
 
     // Close the page to prevent context leakage.
     await page.close();
