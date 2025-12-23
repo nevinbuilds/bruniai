@@ -55,7 +55,18 @@ export async function analyzeImagesWithVision(
   const stagehand = new Stagehand({
     env: "LOCAL",
     localBrowserLaunchOptions: {
-      headless: false,
+      headless: true,
+      viewport: {
+        width: 1920,
+        height: 1080,
+      },
+      args: [
+        // Allow file:// URLs in headless mode.
+        "--allow-file-access-from-files",
+        "--disable-web-security",
+        // Ensure proper rendering in headless mode.
+        "--disable-features=VizDisplayCompositor",
+      ],
     },
   });
 
