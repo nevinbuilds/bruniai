@@ -56,17 +56,6 @@ export async function analyzeImagesWithVision(
     env: "LOCAL",
     localBrowserLaunchOptions: {
       headless: true,
-      viewport: {
-        width: 1920,
-        height: 1080,
-      },
-      args: [
-        // Allow file:// URLs in headless mode.
-        "--allow-file-access-from-files",
-        "--disable-web-security",
-        // Ensure proper rendering in headless mode.
-        "--disable-features=VizDisplayCompositor",
-      ],
     },
   });
 
