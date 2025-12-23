@@ -11,6 +11,7 @@ import { createImageComparisonHtml } from "./utils.js";
 import { writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * Analyze base URL structure, sections, and layout.
@@ -123,18 +124,19 @@ export async function analyzePreviewUrlAgent(
     .join("\n");
 
   const systemPrompt = `
-    You are a visual differences analyzer. You are visiting a webpage that includes a screenshot of the base URL and a screenshot of the preview URL and a screenshot of the diff image.
-    Together with this information, you are also given a list of sections that are present in the base URL and you should use this information to analyze the visual differences between the base URL and the preview URL.
+    You are analyzing the PREVIEW URL (changed/new version) of a website and comparing it against the BASE URL structure.
+
+    You are currently viewing the live preview URL page. You have been provided with a list of sections that are present in the base URL, and you should use this information to analyze the structure and identify any differences or missing sections in the current preview URL page.
+
     The structure of the webpage should follow the structure given in the section analysis.
 
     Your task is to:
-    1. Check if each section from the base URL is present in this preview URL
+    1. Check if each section from the base URL is present in this preview URL page
     2. Identify any missing sections (CRITICAL issue)
     3. Document structural changes compared to the base URL
     4. Note layout changes and element repositioning
     5. Identify any broken layouts
-    6. Avoid small differences and especially differences that are just a result of differences from sections above. Try as much as possible to analyze section
-    by
+    6. Avoid small differences and especially differences that are just a result of differences from sections above. Try as much as possible to analyze each section independently
 
     Reference sections from BASE URL:
     ${baseSectionsList}
@@ -222,14 +224,16 @@ export async function analyzeImagesAgent(
     preview_url
   );
 
-  // Create a temporary HTML file and navigate to it.
+  // Create a temporary HTML file with unique filename to avoid conflicts
+  // when multiple processes run concurrently.
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
+  const uniqueId = uuidv4();
   const tempHtmlPath = join(
     __dirname,
     "..",
     "..",
-    "temp-images-comparison.html"
+    `temp-images-comparison-${uniqueId}.html`
   );
 
   writeFileSync(tempHtmlPath, comparisonHtml, "utf-8");

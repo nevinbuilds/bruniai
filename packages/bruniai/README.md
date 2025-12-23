@@ -39,8 +39,6 @@ Performs a visual comparison between two URLs.
 - `page` (string, optional): Page path to compare (default: "/")
 - `prNumber` (string, optional): PR number for metadata
 - `repository` (string, optional): Repository name for metadata
-- `prTitle` (string, optional): PR title for context
-- `prDescription` (string, optional): PR description for context
 
 **Returns:**
 

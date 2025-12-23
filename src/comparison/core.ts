@@ -29,10 +29,6 @@ export interface ComparisonOptions {
   prNumber?: string;
   /** Optional repository name for metadata. */
   repository?: string;
-  /** Optional PR title for context. */
-  prTitle?: string;
-  /** Optional PR description for context. */
-  prDescription?: string;
 }
 
 /**
