@@ -15,6 +15,7 @@
     "test": "vitest --run",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
+    "eval": "tsx tests/eval/run-eval.ts",
     "deploy": "node scripts/deploy.js",
     "deploy:dry-run": "node scripts/deploy.js --dry-run",
     "release": "node scripts/release.js",

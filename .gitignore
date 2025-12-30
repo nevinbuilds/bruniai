@@ -17,3 +17,6 @@ dist/
 
 # testing
 /coverage
+
+# evaluation results
+tests/eval/.eval-results/
