@@ -131,8 +131,6 @@ async function main() {
       imagesDir,
       prNumber: prNumber?.toString(),
       repository: repo || undefined,
-      prTitle: title || undefined,
-      prDescription: description || undefined,
     });
 
     console.log("Visual analysis completed:", result.visual_analysis.status);

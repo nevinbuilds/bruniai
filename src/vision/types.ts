@@ -101,3 +101,56 @@ export const VisualAnalysisResultSchema = z.object({
 
 export type VisualAnalysisResult = z.infer<typeof VisualAnalysisResultSchema>;
 
+// Intermediate agent result schemas
+// Base URL analysis result schema
+export const BaseUrlAnalysisResultSchema = z.object({
+  sections: z.array(
+    z.object({
+      name: z.string(),
+      section_id: z.string(),
+      description: z.string(),
+      position: z.string().optional(),
+    })
+  ),
+  structural_analysis: StructuralAnalysisSchema,
+  layout_notes: z.string(),
+});
+
+export type BaseUrlAnalysisResult = z.infer<typeof BaseUrlAnalysisResultSchema>;
+
+// Preview URL analysis result schema
+export const PreviewUrlAnalysisResultSchema = z.object({
+  sections: z.array(
+    z.object({
+      name: z.string(),
+      section_id: z.string(),
+      status: SectionStatusSchema,
+      description: z.string(),
+      position: z.string().optional(),
+    })
+  ),
+  structural_analysis: StructuralAnalysisSchema,
+  layout_notes: z.string(),
+  missing_sections: z.array(z.string()),
+});
+
+export type PreviewUrlAnalysisResult = z.infer<
+  typeof PreviewUrlAnalysisResultSchema
+>;
+
+// Image comparison analysis result schema
+export const ImageAnalysisResultSchema = z.object({
+  critical_issues: CriticalIssuesSchema,
+  critical_issues_enum: CriticalIssuesEnumSchema,
+  visual_changes: VisualChangesSchema,
+  visual_changes_enum: VisualChangesEnumSchema,
+  missing_sections: z.array(
+    z.object({
+      name: z.string(),
+      section_id: z.string(),
+      description: z.string(),
+    })
+  ),
+});
+
+export type ImageAnalysisResult = z.infer<typeof ImageAnalysisResultSchema>;

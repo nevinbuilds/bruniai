@@ -29,10 +29,6 @@ export interface ComparisonOptions {
   prNumber?: string;
   /** Optional repository name for metadata. */
   repository?: string;
-  /** Optional PR title for context. */
-  prTitle?: string;
-  /** Optional PR description for context. */
-  prDescription?: string;
 }
 
 /**
@@ -77,8 +73,6 @@ export async function performComparison(
     imagesDir,
     prNumber = "",
     repository = "",
-    prTitle,
-    prDescription,
   } = options;
 
   // Construct full URLs for this page.
@@ -189,9 +183,7 @@ export async function performComparison(
     fullPreviewUrl,
     prNumber,
     repository,
-    sectionsAnalysis,
-    prTitle,
-    prDescription
+    sectionsAnalysis
   );
 
   return {
