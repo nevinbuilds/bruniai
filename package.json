@@ -16,7 +16,9 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "deploy": "node scripts/deploy.js",
-    "deploy:dry-run": "node scripts/deploy.js --dry-run"
+    "deploy:dry-run": "node scripts/deploy.js --dry-run",
+    "release": "node scripts/release.js",
+    "release:dry-run": "node scripts/release.js --dry-run"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "^3.0.1",
