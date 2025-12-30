@@ -9,6 +9,7 @@ images/
 
 .DS_Store
 
+.npmrc
 
 # TypeScript/Bun build outputs
 dist/
