@@ -351,6 +351,26 @@ async function release() {
     return;
   }
 
+  // Ensure current commit is pushed to remote.
+  info("Checking if current commit is pushed to remote...");
+  const currentBranch = getCurrentBranch();
+  const remoteBranch = execOutput(
+    `git ls-remote --heads origin ${currentBranch} | cut -f1 || echo ''`
+  );
+  const localCommit = execOutput("git rev-parse HEAD");
+
+  if (remoteBranch && remoteBranch !== localCommit) {
+    warn(`Current commit is not on remote. Pushing ${currentBranch}...`);
+    exec(`git push origin ${currentBranch}`);
+    success(`Pushed ${currentBranch} to remote`);
+  } else if (!remoteBranch) {
+    warn(`Branch ${currentBranch} doesn't exist on remote. Pushing...`);
+    exec(`git push -u origin ${currentBranch}`);
+    success(`Pushed ${currentBranch} to remote`);
+  } else {
+    info("Current commit is already on remote");
+  }
+
   // Create versioned tag.
   info("Creating versioned tag...");
   exec(`git tag -a ${tag} -m "Release ${tag}"`);
