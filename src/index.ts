@@ -8,6 +8,8 @@ import {
 } from "./github/pr-comments.js";
 import { parseArgs } from "./args.js";
 import { performComparison } from "./comparison/core.js";
+import { performFigmaComparison } from "./comparison/figma-core.js";
+import { isFigmaPrototypeUrl } from "./figma/index.js";
 import {
   BruniReporter,
   parseMultiPageAnalysisResults,
@@ -48,8 +50,13 @@ async function main() {
     prNumber = await getPrNumberFromEvent();
   }
 
+  // Detect if base URL is a Figma prototype.
+  const isFigmaMode = isFigmaPrototypeUrl(args.baseUrl);
+  const comparisonMode = isFigmaMode ? "figma-to-url" : "url-to-url";
+
   console.log("Base URL:", args.baseUrl);
   console.log("PR URL:", args.prUrl);
+  console.log("Comparison Mode:", comparisonMode);
   console.log("PR Title:", title);
   console.log("PR Description:", description);
   console.log("Repository:", repo);
@@ -112,26 +119,49 @@ async function main() {
   }> = [];
 
   // Process each page sequentially to avoid race conditions.
-  for (const page of pages) {
+  // For Figma mode, we only process the single Figma URL (no page paths).
+  const pagesToProcess = isFigmaMode ? ["/"] : pages;
+
+  for (const page of pagesToProcess) {
     console.log("Processing page ------ ", page);
 
     // Construct full URLs for this page.
-    const baseUrl = args.baseUrl!.replace(/\/$/, "") + page;
-    const prUrl = args.prUrl!.replace(/\/$/, "") + page;
+    // For Figma mode, use the URLs directly without appending page path.
+    const baseUrl = isFigmaMode
+      ? args.baseUrl!
+      : args.baseUrl!.replace(/\/$/, "") + page;
+    const prUrl = isFigmaMode
+      ? args.prUrl!
+      : args.prUrl!.replace(/\/$/, "") + page;
 
     console.log(`Base URL: ${baseUrl}`);
     console.log(`PR URL: ${prUrl}`);
 
-    // Perform the core comparison using shared function.
-    const result = await performComparison({
-      stagehand,
-      baseUrl: args.baseUrl!,
-      previewUrl: args.prUrl!,
-      page,
-      imagesDir,
-      prNumber: prNumber?.toString(),
-      repository: repo || undefined,
-    });
+    // Perform the comparison using the appropriate function based on mode.
+    let result;
+    if (isFigmaMode) {
+      // Use Figma-to-URL comparison.
+      result = await performFigmaComparison({
+        stagehand,
+        figmaUrl: args.baseUrl!,
+        previewUrl: args.prUrl!,
+        page,
+        imagesDir,
+        prNumber: prNumber?.toString(),
+        repository: repo || undefined,
+      });
+    } else {
+      // Use standard URL-to-URL comparison.
+      result = await performComparison({
+        stagehand,
+        baseUrl: args.baseUrl!,
+        previewUrl: args.prUrl!,
+        page,
+        imagesDir,
+        prNumber: prNumber?.toString(),
+        repository: repo || undefined,
+      });
+    }
 
     console.log("Visual analysis completed:", result.visual_analysis.status);
 
