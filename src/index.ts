@@ -15,6 +15,7 @@ import {
   parseMultiPageAnalysisResults,
   encodeImageCompressed,
 } from "./reporter/index.js";
+import type { ComparisonMode } from "./reporter/index.js";
 import { ensureViewportSize } from "./utils/window.js";
 import type { VisualAnalysisResult } from "./vision/types.js";
 
@@ -335,11 +336,12 @@ async function main() {
         });
       }
 
-      // Create multi-page report
+      // Create multi-page report.
       const multiPageReport = parseMultiPageAnalysisResults(
         prNumber?.toString() || "",
         repo || "",
-        pageResults
+        pageResults,
+        comparisonMode as ComparisonMode
       );
 
       // Send multi-page report
