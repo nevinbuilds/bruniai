@@ -19,6 +19,7 @@ import { ensureViewportSize } from "../utils/window.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
 import { join } from "path";
 import { writeFileSync } from "fs";
+import sharp from "sharp";
 
 /**
  * Options for performing a Figma-to-URL comparison.
@@ -181,28 +182,17 @@ export async function performFigmaComparison(
     );
 
     try {
-      // Read the base screenshot and clip the section.
-      // For now, we'll take a fresh screenshot with clip from the Figma canvas.
-      // This ensures we get the exact bounds.
-      const page = stagehand.context.pages()[0];
-      await page.goto(figmaUrl, { waitUntil: "load", timeoutMs: 60000 });
-
-      // Wait for canvas to be ready.
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Calculate clip coordinates relative to canvas.
-      const clipX = figmaResult.canvasBounds.x + section.boundingBox.x;
-      const clipY = figmaResult.canvasBounds.y + section.boundingBox.y;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const baseSectionScreenshot = await page.screenshot({
-        clip: {
-          x: clipX,
-          y: clipY,
-          width: section.boundingBox.width,
-          height: section.boundingBox.height,
-        },
-      } as any);
+      // Crop directly from the stitched base screenshot.
+      // This works even when the section is below the first viewport.
+      const baseSectionScreenshot = await sharp(baseScreenshotPath)
+        .extract({
+          left: Math.max(0, Math.round(section.boundingBox.x)),
+          top: Math.max(0, Math.round(section.boundingBox.y)),
+          width: Math.max(1, Math.round(section.boundingBox.width)),
+          height: Math.max(1, Math.round(section.boundingBox.height)),
+        })
+        .png()
+        .toBuffer();
 
       writeFileSync(baseSectionPath, baseSectionScreenshot);
 
