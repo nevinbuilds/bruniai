@@ -137,24 +137,13 @@ export async function analyzeImagesWithVision(
 }
 
 /**
- * Analyze screenshots for Figma-to-URL comparisons.
+ * Analyze screenshots for image-baseline comparisons.
  *
- * This variant skips URL-based navigation for the base URL (Figma) since
- * Figma prototypes don't have accessible DOM structure. It only analyzes
+ * This variant skips URL-based navigation for the base reference because
+ * the base is a screenshot/image, not a browsable HTML page. It analyzes
  * the preview URL and performs image-based comparison.
- *
- * @param base_screenshot - Path to the Figma screenshot.
- * @param pr_screenshot - Path to the preview URL screenshot.
- * @param diff_image - Path to the diff image.
- * @param base_url - Figma prototype URL (for metadata only).
- * @param preview_url - Preview URL for the live site.
- * @param pr_number - PR number.
- * @param repository - Repository name.
- * @param sections_analysis - Visual sections analysis from AI detection.
- * @param user_id - Optional user ID.
- * @returns Complete structured report data.
  */
-export async function analyzeImagesWithVisionFigmaMode(
+export async function analyzeImagesWithVisionImageMode(
   base_screenshot: string,
   pr_screenshot: string,
   diff_image: string,
@@ -168,7 +157,7 @@ export async function analyzeImagesWithVisionFigmaMode(
   console.log(
     `\n${"=".repeat(
       50
-    )}\n🔍 Starting Figma-mode visual analysis (image-based only)\n${"=".repeat(50)}`
+    )}\n🔍 Starting image-baseline visual analysis (image-based only)\n${"=".repeat(50)}`
   );
 
   // Initialize Stagehand for image and preview URL analysis.
@@ -182,12 +171,12 @@ export async function analyzeImagesWithVisionFigmaMode(
   try {
     await stagehand.init();
 
-    // For Figma mode, we create a synthetic base analysis from the visual
-    // sections analysis instead of navigating to the Figma URL.
+    // For image baseline mode, we create a synthetic base analysis from the
+    // visual sections analysis instead of navigating to the base URL.
     console.log(
       `\n${"=".repeat(
         50
-      )}\n🔍 Agent 1: Using visual sections analysis (Figma mode)\n${"=".repeat(50)}`
+      )}\n🔍 Agent 1: Using visual sections analysis (image mode)\n${"=".repeat(50)}`
     );
 
     const baseAnalysis: BaseUrlAnalysisResult = createBaseAnalysisFromSections(
@@ -252,7 +241,7 @@ export async function analyzeImagesWithVisionFigmaMode(
 
     return validatedData;
   } catch (error) {
-    console.error(`Error during Figma-mode image analysis: ${error}`);
+    console.error(`Error during image-mode analysis: ${error}`);
     throw error;
   } finally {
     await stagehand.close();
@@ -306,11 +295,11 @@ function createBaseAnalysisFromSections(
   return {
     sections,
     structural_analysis: {
-      section_order: "Sections analyzed from Figma prototype screenshot",
-      layout: "Visual layout extracted from design file",
+      section_order: "Sections analyzed from base screenshot",
+      layout: "Visual layout extracted from base image",
       broken_layouts: "none",
     },
     layout_notes:
-      "Analysis based on Figma prototype visual sections (AI-detected)",
+      "Analysis based on base screenshot visual sections (AI-detected)",
   };
 }

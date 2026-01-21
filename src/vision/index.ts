@@ -1,6 +1,6 @@
 export {
   analyzeImagesWithVision,
-  analyzeImagesWithVisionFigmaMode,
+  analyzeImagesWithVisionImageMode,
 } from "./vision.js";
 export type {
   VisualAnalysisResult,

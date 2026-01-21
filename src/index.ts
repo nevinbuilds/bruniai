@@ -8,8 +8,8 @@ import {
 } from "./github/pr-comments.js";
 import { parseArgs } from "./args.js";
 import { performComparison } from "./comparison/core.js";
-import { performFigmaComparison } from "./comparison/figma-core.js";
-import { isFigmaPrototypeUrl } from "./figma/index.js";
+import { performImageComparison } from "./comparison/image-core.js";
+import { isImageSourceUrl } from "./image/index.js";
 import {
   BruniReporter,
   parseMultiPageAnalysisResults,
@@ -51,9 +51,9 @@ async function main() {
     prNumber = await getPrNumberFromEvent();
   }
 
-  // Detect if base URL is a Figma prototype.
-  const isFigmaMode = isFigmaPrototypeUrl(args.baseUrl);
-  const comparisonMode = isFigmaMode ? "figma-to-url" : "url-to-url";
+  // Detect if base URL is an image URL (image-to-url mode).
+  const isImageMode = isImageSourceUrl(args.baseUrl);
+  const comparisonMode = isImageMode ? "image-to-url" : "url-to-url";
 
   console.log("Base URL:", args.baseUrl);
   console.log("PR URL:", args.prUrl);
@@ -120,31 +120,29 @@ async function main() {
   }> = [];
 
   // Process each page sequentially to avoid race conditions.
-  // For Figma mode, we only process the single Figma URL (no page paths).
-  const pagesToProcess = isFigmaMode ? ["/"] : pages;
+  // For image mode, we only process a single baseline image (no page paths).
+  const pagesToProcess = isImageMode ? ["/"] : pages;
 
   for (const page of pagesToProcess) {
     console.log("Processing page ------ ", page);
 
     // Construct full URLs for this page.
-    // For Figma mode, use the URLs directly without appending page path.
-    const baseUrl = isFigmaMode
+    // For image mode, use the URLs directly without appending page path.
+    const baseUrl = isImageMode
       ? args.baseUrl!
       : args.baseUrl!.replace(/\/$/, "") + page;
-    const prUrl = isFigmaMode
-      ? args.prUrl!
-      : args.prUrl!.replace(/\/$/, "") + page;
+    const prUrl = isImageMode ? args.prUrl! : args.prUrl!.replace(/\/$/, "") + page;
 
     console.log(`Base URL: ${baseUrl}`);
     console.log(`PR URL: ${prUrl}`);
 
     // Perform the comparison using the appropriate function based on mode.
     let result;
-    if (isFigmaMode) {
-      // Use Figma-to-URL comparison.
-      result = await performFigmaComparison({
+    if (isImageMode) {
+      // Use image-to-URL comparison.
+      result = await performImageComparison({
         stagehand,
-        figmaUrl: args.baseUrl!,
+        baseImageUrl: args.baseUrl!,
         previewUrl: args.prUrl!,
         page,
         imagesDir,

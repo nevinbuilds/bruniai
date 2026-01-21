@@ -1,34 +1,28 @@
 /**
- * Figma-to-URL comparison core functionality.
+ * Image-to-URL comparison core functionality.
  *
- * This module provides the workflow for comparing Figma prototype
- * screenshots against live website URLs using visual AI-based section
- * detection.
+ * This compares a baseline image (downloaded from a URL) against a live URL.
  */
 
 import type { Stagehand } from "@browserbasehq/stagehand";
 import { generateDiffImage } from "../diff/diff.js";
 import {
-  screenshotFigmaPrototype,
+  downloadImageToPng,
   extractVisualSections,
   formatVisualSectionsAsAnalysis,
   takeSectionScreenshotsFromVisualBounds,
-} from "../figma/index.js";
-import { analyzeImagesWithVisionFigmaMode } from "../vision/index.js";
+} from "../image/index.js";
+import { analyzeImagesWithVisionImageMode } from "../vision/index.js";
 import { ensureViewportSize } from "../utils/window.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
 import { join } from "path";
 import { writeFileSync } from "fs";
 import sharp from "sharp";
 
-/**
- * Options for performing a Figma-to-URL comparison.
- */
-export interface FigmaComparisonOptions {
-  /** Stagehand instance to use for browser automation. */
+export interface ImageComparisonOptions {
   stagehand: Stagehand;
-  /** Figma prototype URL (base/reference). */
-  figmaUrl: string;
+  /** Baseline image URL. */
+  baseImageUrl: string;
   /** Preview/live URL to compare against. */
   previewUrl: string;
   /** Page path for the comparison (used for file naming). */
@@ -41,46 +35,22 @@ export interface FigmaComparisonOptions {
   repository?: string;
 }
 
-/**
- * Result of a Figma-to-URL comparison.
- */
-export interface FigmaComparisonResult {
-  /** Visual analysis result from AI. */
+export interface ImageComparisonResult {
   visual_analysis: VisualAnalysisResult;
-  /** Formatted sections analysis text (AI-detected). */
   sections_analysis: string;
-  /** Path to Figma screenshot (base). */
   base_screenshot: string;
-  /** Path to preview URL screenshot. */
   preview_screenshot: string;
-  /** Path to diff image. */
   diff_image: string;
-  /** Section screenshots keyed by section ID. */
   section_screenshots: Record<string, { base: string; preview: string }>;
-  /** Comparison mode indicator. */
-  mode: "figma-to-url";
+  mode: "image-to-url";
 }
 
-/**
- * Perform visual comparison between a Figma prototype and a live URL.
- *
- * This function performs the Figma-to-URL comparison workflow:
- * 1. Takes screenshot of Figma prototype (canvas only)
- * 2. Takes screenshot of preview URL
- * 3. Generates diff image
- * 4. Extracts visual sections using AI
- * 5. Captures section screenshots
- * 6. Performs visual analysis with AI
- *
- * @param options - Figma comparison options.
- * @returns Complete comparison results with image paths.
- */
-export async function performFigmaComparison(
-  options: FigmaComparisonOptions
-): Promise<FigmaComparisonResult> {
+export async function performImageComparison(
+  options: ImageComparisonOptions
+): Promise<ImageComparisonResult> {
   const {
     stagehand,
-    figmaUrl,
+    baseImageUrl,
     previewUrl,
     page,
     imagesDir,
@@ -89,46 +59,25 @@ export async function performFigmaComparison(
   } = options;
 
   console.log(
-    `\n${"=".repeat(50)}\n🎨 Starting Figma-to-URL Comparison\n${"=".repeat(50)}`
+    `\n${"=".repeat(50)}\n🖼️ Starting Image-to-URL Comparison\n${"=".repeat(50)}`
   );
-  console.log(`Figma URL: ${figmaUrl}`);
+  console.log(`Base Image URL: ${baseImageUrl}`);
   console.log(`Preview URL: ${previewUrl}`);
 
-  // Generate page suffix for file naming.
   let pageSuffix = page.replace(/\//g, "_");
   pageSuffix = pageSuffix === "_" ? "home" : pageSuffix;
 
-  // Step 1: Take screenshot of Figma prototype.
-  console.log("\n📸 Step 1: Capturing Figma prototype screenshot...");
-  const baseScreenshotPath = join(
-    imagesDir,
-    `base_screenshot_${pageSuffix}.png`
-  );
+  // Step 1: Download base image and normalize to PNG.
+  console.log("\n📥 Step 1: Downloading base image...");
+  const baseScreenshotPath = join(imagesDir, `base_screenshot_${pageSuffix}.png`);
+  await downloadImageToPng(baseImageUrl, baseScreenshotPath);
+  console.log(`Base image saved: ${baseScreenshotPath}`);
 
-  const figmaResult = await screenshotFigmaPrototype(
-    stagehand,
-    figmaUrl,
-    baseScreenshotPath
-  );
-
-  if (!figmaResult.success) {
-    throw new Error(
-      `Failed to capture Figma screenshot: ${figmaResult.error || "Unknown error"}`
-    );
-  }
-
-  console.log(`Figma screenshot saved: ${baseScreenshotPath}`);
-  console.log(`Canvas bounds: ${JSON.stringify(figmaResult.canvasBounds)}`);
-
-  // Step 2: Take screenshot of preview URL.
+  // Step 2: Screenshot preview URL.
   console.log("\n📸 Step 2: Capturing preview URL screenshot...");
-  const initialPage = stagehand.context.pages()[0];
-  await ensureViewportSize(initialPage, previewUrl);
-
-  const previewScreenshot = await initialPage.screenshot({
-    fullPage: true,
-  });
-
+  const pageHandle = stagehand.context.pages()[0];
+  await ensureViewportSize(pageHandle, previewUrl);
+  const previewScreenshot = await pageHandle.screenshot({ fullPage: true });
   const previewScreenshotPath = join(
     imagesDir,
     `preview_screenshot_${pageSuffix}.png`
@@ -139,21 +88,15 @@ export async function performFigmaComparison(
   // Step 3: Generate diff image.
   console.log("\n🔍 Step 3: Generating diff image...");
   const diffImagePath = join(imagesDir, `diff_${pageSuffix}.png`);
-  await generateDiffImage(
-    baseScreenshotPath,
-    previewScreenshotPath,
-    diffImagePath
-  );
+  await generateDiffImage(baseScreenshotPath, previewScreenshotPath, diffImagePath);
   console.log(`Diff image saved: ${diffImagePath}`);
 
-  // Step 4: Extract visual sections from Figma screenshot using AI.
+  // Step 4: Extract visual sections from the base image.
   console.log("\n🤖 Step 4: Extracting visual sections using AI...");
   const visualSectionsResult = await extractVisualSections(
     stagehand,
     baseScreenshotPath
   );
-
-  // Format sections analysis for compatibility with existing workflow.
   const sectionsAnalysis = formatVisualSectionsAsAnalysis(visualSectionsResult);
   console.log(
     `\n${"=".repeat(50)}\n🗺️ Visual Sections Analysis:\n${sectionsAnalysis}\n${"=".repeat(50)}`
@@ -161,10 +104,8 @@ export async function performFigmaComparison(
 
   // Step 5: Capture section screenshots.
   console.log("\n📷 Step 5: Capturing section screenshots...");
-  const sectionScreenshots: Record<string, { base: string; preview: string }> =
-    {};
+  const sectionScreenshots: Record<string, { base: string; preview: string }> = {};
 
-  // Take section screenshots from preview URL using visual bounds.
   const previewSectionScreenshots = await takeSectionScreenshotsFromVisualBounds(
     stagehand,
     previewUrl,
@@ -173,7 +114,7 @@ export async function performFigmaComparison(
     pageSuffix
   );
 
-  // For Figma sections, we use the visual bounds to clip from the base screenshot.
+  // Crop base sections from the base image.
   for (const section of visualSectionsResult.sections) {
     const sectionId = section.sectionId;
     const baseSectionPath = join(
@@ -182,8 +123,6 @@ export async function performFigmaComparison(
     );
 
     try {
-      // Crop directly from the stitched base screenshot.
-      // This works even when the section is below the first viewport.
       const baseSectionScreenshot = await sharp(baseScreenshotPath)
         .extract({
           left: Math.max(0, Math.round(section.boundingBox.x)),
@@ -193,10 +132,8 @@ export async function performFigmaComparison(
         })
         .png()
         .toBuffer();
-
       writeFileSync(baseSectionPath, baseSectionScreenshot);
 
-      // Only add to result if both screenshots exist.
       if (previewSectionScreenshots[sectionId]) {
         sectionScreenshots[sectionId] = {
           base: baseSectionPath,
@@ -204,9 +141,7 @@ export async function performFigmaComparison(
         };
       }
     } catch (error) {
-      console.warn(
-        `Failed to capture Figma section ${sectionId}: ${error}`
-      );
+      console.warn(`Failed to crop base section ${sectionId}: ${error}`);
     }
   }
 
@@ -214,13 +149,13 @@ export async function performFigmaComparison(
     `Captured ${Object.keys(sectionScreenshots).length} section screenshot pairs`
   );
 
-  // Step 6: Perform visual analysis with AI (Figma mode - skips URL navigation).
-  console.log("\n🧠 Step 6: Performing visual analysis (Figma mode)...");
-  const visualAnalysis = await analyzeImagesWithVisionFigmaMode(
+  // Step 6: Perform visual analysis (skip base URL navigation).
+  console.log("\n🧠 Step 6: Performing visual analysis (image mode)...");
+  const visualAnalysis = await analyzeImagesWithVisionImageMode(
     baseScreenshotPath,
     previewScreenshotPath,
     diffImagePath,
-    figmaUrl,
+    baseImageUrl,
     previewUrl,
     prNumber,
     repository,
@@ -236,6 +171,7 @@ export async function performFigmaComparison(
     preview_screenshot: previewScreenshotPath,
     diff_image: diffImagePath,
     section_screenshots: sectionScreenshots,
-    mode: "figma-to-url",
+    mode: "image-to-url",
   };
 }
+

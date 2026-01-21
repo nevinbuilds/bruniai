@@ -87,7 +87,7 @@ export function determineStatusFromVisualAnalysis(
  *   - visual_analysis: VisualAnalysisResult or dict
  *   - sections_analysis: string
  *   - image_refs: Optional ImageReferences
- * @param comparisonMode - Optional comparison mode (url-to-url or figma-to-url).
+ * @param comparisonMode - Optional comparison mode (url-to-url or image-to-url).
  * @returns MultiPageReportData with test_data and reports.
  */
 export function parseMultiPageAnalysisResults(
