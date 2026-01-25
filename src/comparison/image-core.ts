@@ -13,7 +13,7 @@ import {
   takeSectionScreenshotsFromVisualBounds,
 } from "../image/index.js";
 import { analyzeImagesWithVisionImageMode } from "../vision/index.js";
-import { ensureViewportSize } from "../utils/window.js";
+import { ensureViewportSize, ensurePageFullyRendered } from "../utils/window.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
 import { join } from "path";
 import { writeFileSync } from "fs";
@@ -73,10 +73,18 @@ export async function performImageComparison(
   await downloadImageToPng(baseImageUrl, baseScreenshotPath);
   console.log(`Base image saved: ${baseScreenshotPath}`);
 
-  // Step 2: Screenshot preview URL.
+  // Get base image dimensions to match viewport width.
+  const baseImageMeta = await sharp(baseScreenshotPath).metadata();
+  const baseImageWidth = baseImageMeta.width || 1920;
+  const baseImageHeight = baseImageMeta.height || 1080;
+  console.log(`Base image dimensions: ${baseImageWidth}x${baseImageHeight}`);
+
+  // Step 2: Screenshot preview URL at the same width as base image.
   console.log("\n📸 Step 2: Capturing preview URL screenshot...");
   const pageHandle = stagehand.context.pages()[0];
-  await ensureViewportSize(pageHandle, previewUrl);
+  // Set viewport to match base image width for accurate comparison.
+  await ensureViewportSize(pageHandle, previewUrl, baseImageWidth, 1080);
+  await ensurePageFullyRendered(pageHandle);
   const previewScreenshot = await pageHandle.screenshot({ fullPage: true });
   const previewScreenshotPath = join(
     imagesDir,

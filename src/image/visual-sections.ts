@@ -77,7 +77,7 @@ const VisualSectionsResultSchema = z.object({
 function createImageAnalysisHtml(
   screenshotPath: string,
   imageWidth: number,
-  imageHeight: number
+  imageHeight: number,
 ): string {
   const imageBuffer = readFileSync(screenshotPath);
   const base64Image = imageBuffer.toString("base64");
@@ -124,7 +124,10 @@ function createImageAnalysisHtml(
   `;
 }
 
-function getImageDimensions(imagePath: string): { width: number; height: number } {
+function getImageDimensions(imagePath: string): {
+  width: number;
+  height: number;
+} {
   const buffer = readFileSync(imagePath);
 
   // PNG signature.
@@ -169,14 +172,16 @@ function getImageDimensions(imagePath: string): { width: number; height: number 
 
 export async function extractVisualSections(
   stagehand: Stagehand,
-  screenshotPath: string
+  screenshotPath: string,
 ): Promise<VisualSectionsResult> {
   console.log(
-    `\n${"=".repeat(50)}\n🔍 Extracting visual sections from screenshot\n${"=".repeat(50)}`
+    `\n${"=".repeat(50)}\n🔍 Extracting visual sections from screenshot\n${"=".repeat(50)}`,
   );
 
   const imageDimensions = getImageDimensions(screenshotPath);
-  console.log(`Image dimensions: ${imageDimensions.width}x${imageDimensions.height}`);
+  console.log(
+    `Image dimensions: ${imageDimensions.width}x${imageDimensions.height}`,
+  );
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
@@ -189,13 +194,14 @@ export async function extractVisualSections(
   const chunkCount =
     imageDimensions.height > maxChunkHeight
       ? Math.ceil(
-          (imageDimensions.height - chunkOverlap) / (maxChunkHeight - chunkOverlap)
+          (imageDimensions.height - chunkOverlap) /
+            (maxChunkHeight - chunkOverlap),
         )
       : 1;
 
   try {
     const agent = stagehand.agent({
-      model: "openai/gpt-4.1-mini",
+      model: "openai/gpt-5-mini",
       systemPrompt:
         "You are an expert visual analysis assistant specializing in identifying sections and layout structure from website or design screenshots. You must respond with valid JSON only.",
     });
@@ -211,7 +217,7 @@ export async function extractVisualSections(
 
       const chunkPath = join(
         tempDir,
-        `temp-visual-sections-${uniqueId}-chunk-${chunkIndex}.png`
+        `temp-visual-sections-${uniqueId}-chunk-${chunkIndex}.png`,
       );
 
       await sharp(screenshotPath)
@@ -227,12 +233,12 @@ export async function extractVisualSections(
       const analysisHtml = createImageAnalysisHtml(
         chunkPath,
         imageDimensions.width,
-        chunkHeight
+        chunkHeight,
       );
 
       const tempHtmlPath = join(
         tempDir,
-        `temp-visual-sections-${uniqueId}-chunk-${chunkIndex}.html`
+        `temp-visual-sections-${uniqueId}-chunk-${chunkIndex}.html`,
       );
       writeFileSync(tempHtmlPath, analysisHtml, "utf-8");
 
@@ -248,21 +254,30 @@ Analyze the screenshot image displayed on this page to identify all major visual
 This is CHUNK ${chunkIndex + 1} of ${chunkCount} of a tall page.
 The chunk is a vertical slice of the full page from y=${yStart}px to y=${yEnd}px.
 
-Your task is to:
-1. Identify major visual sections (header, hero, features, content blocks, footer, etc.)
+**CRITICAL SECTION DETECTION RULES:**
+1. A "section" must be a COMPLETE, LOGICAL page section (e.g., "Navigation Header", "Hero Section", "Features Overview", "Testimonials", "Pricing Table", "Call-to-Action Banner", "Footer").
+2. Sections should be at least 80px tall (ignore tiny fragments, decorative elements, or partial content).
+3. Sections typically span most or all of the page width (at least 60% of ${imageDimensions.width}px).
+4. Look for clear visual boundaries: background color changes, spacing gaps, horizontal dividers, or distinct content groupings.
+5. Common section types: Navigation/Header, Hero/Banner, Features/Services, Testimonials, Pricing/Packages, Gallery/Portfolio, FAQ, Call-to-Action (CTA), Footer.
+6. DO NOT create sections for: individual images, small text blocks, icons, buttons, or partial content that's clearly part of a larger section.
+
+**YOUR TASK:**
+1. Identify ONLY complete, major visual sections (header, hero, features, content blocks, footer, etc.)
 2. For each section, estimate its bounding box coordinates in PIXELS relative to THIS CHUNK
-3. Generate a unique, descriptive ID for each section (e.g., "hero-section", "nav-header")
+3. Generate a unique, descriptive ID for each section (e.g., "hero-section", "nav-header", "footer-section")
 4. Describe the visual patterns and content of each section
 
 **CHUNK IMAGE DIMENSIONS:**
 - The chunk is ${imageDimensions.width} pixels wide and ${chunkHeight} pixels tall
 - All bounding box coordinates must be within these chunk dimensions
+- Section heights should be at least 80px (ignore smaller fragments)
 
 **IMPORTANT: You must respond with valid JSON only, following this exact structure:**
 {
   "sections": [
     {
-      "name": "Section Name",
+      "name": "Section Name (e.g., Navigation Header, Hero Section, Footer)",
       "sectionId": "kebab-case-id",
       "description": "Description of section content and purpose",
       "boundingBox": { "x": 0, "y": 0, "width": ${imageDimensions.width}, "height": 100 },
@@ -305,7 +320,9 @@ Your task is to:
         }
       }
 
-      const chunkResult = VisualSectionsResultSchema.parse(JSON.parse(jsonString));
+      const chunkResult = VisualSectionsResultSchema.parse(
+        JSON.parse(jsonString),
+      );
       if (!layoutDescription && chunkResult.layoutDescription) {
         layoutDescription = chunkResult.layoutDescription;
       }
@@ -337,7 +354,10 @@ Your task is to:
     allSections.sort((a, b) => a.boundingBox.y - b.boundingBox.y);
 
     function normalizeName(s: string): string {
-      return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      return s
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
     }
     function isSimilar(a: string, b: string): boolean {
       const na = normalizeName(a);
@@ -355,7 +375,10 @@ Your task is to:
       const bTop = b.boundingBox.y;
       const bBot = b.boundingBox.y + b.boundingBox.height;
       const inter = Math.max(0, Math.min(aBot, bBot) - Math.max(aTop, bTop));
-      const minH = Math.max(1, Math.min(a.boundingBox.height, b.boundingBox.height));
+      const minH = Math.max(
+        1,
+        Math.min(a.boundingBox.height, b.boundingBox.height),
+      );
       return inter / minH;
     }
 
@@ -371,16 +394,20 @@ Your task is to:
         const y1 = Math.min(last.boundingBox.y, section.boundingBox.y);
         const x2 = Math.max(
           last.boundingBox.x + last.boundingBox.width,
-          section.boundingBox.x + section.boundingBox.width
+          section.boundingBox.x + section.boundingBox.width,
         );
         const y2 = Math.max(
           last.boundingBox.y + last.boundingBox.height,
-          section.boundingBox.y + section.boundingBox.height
+          section.boundingBox.y + section.boundingBox.height,
         );
 
         last.boundingBox = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
-        if (section.description && !last.description.includes(section.description)) {
-          last.description = `${last.description} ${section.description}`.trim();
+        if (
+          section.description &&
+          !last.description.includes(section.description)
+        ) {
+          last.description =
+            `${last.description} ${section.description}`.trim();
         }
         continue;
       }
@@ -402,19 +429,44 @@ Your task is to:
       s.position = frac < 0.33 ? "top" : frac < 0.66 ? "middle" : "bottom";
     }
 
-    console.log(`Detected ${merged.length} visual sections (chunked)`);
-    for (const section of merged) {
+    // Filter out sections that are too small or too narrow (likely fragments).
+    const minHeight = 80;
+    const minWidthRatio = 0.6; // At least 60% of page width.
+    const filtered = merged.filter((s) => {
+      const h = s.boundingBox.height;
+      const w = s.boundingBox.width;
+      const widthRatio = w / imageDimensions.width;
+      if (h < minHeight) {
+        console.log(
+          `  Filtering out ${s.sectionId}: height ${h}px < ${minHeight}px (too small)`,
+        );
+        return false;
+      }
+      if (widthRatio < minWidthRatio) {
+        console.log(
+          `  Filtering out ${s.sectionId}: width ${w}px (${(widthRatio * 100).toFixed(1)}%) < ${(minWidthRatio * 100).toFixed(0)}% of page width (too narrow)`,
+        );
+        return false;
+      }
+      return true;
+    });
+
+    console.log(
+      `Detected ${filtered.length} visual sections (chunked, filtered from ${merged.length})`,
+    );
+    for (const section of filtered) {
       console.log(
         `  - ${section.name} (${section.sectionId}): ${section.boundingBox.y}px - ${
           section.boundingBox.y + section.boundingBox.height
-        }px`
+        }px (${section.boundingBox.width}x${section.boundingBox.height})`,
       );
     }
 
     return {
-      sections: merged,
+      sections: filtered,
       layoutDescription:
-        layoutDescription || "Layout detected from chunked screenshot analysis.",
+        layoutDescription ||
+        "Layout detected from chunked screenshot analysis.",
       imageDimensions: {
         width: imageDimensions.width,
         height: imageDimensions.height,
@@ -426,7 +478,7 @@ Your task is to:
 }
 
 export function formatVisualSectionsAsAnalysis(
-  result: VisualSectionsResult
+  result: VisualSectionsResult,
 ): string {
   let output = `### Visual Section Analysis (AI-detected)\n`;
   output += `Layout: ${result.layoutDescription}\n\n`;
@@ -460,13 +512,23 @@ export async function takeSectionScreenshotsFromVisualBounds(
   url: string,
   sections: VisualSection[],
   outputDir: string,
-  pageSuffix: string
+  pageSuffix: string,
 ): Promise<Record<string, string>> {
   const screenshots: Record<string, string> = {};
   const page = stagehand.context.pages()[0];
 
-  // Navigate to the URL.
-  page.setViewportSize(1920, 1080);
+  // Get current viewport width (preserve it if already set to match base image).
+  const currentViewport = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const win = (globalThis as any).window;
+    return {
+      width: win.innerWidth || 1920,
+      height: win.innerHeight || 1080,
+    };
+  });
+  const viewportWidth = currentViewport.width;
+
+  // Navigate to the URL (viewport should already be set by caller).
   await page.goto(url, { waitUntil: "networkidle", timeoutMs: 60000 });
 
   // Get the full page height.
@@ -478,18 +540,18 @@ export async function takeSectionScreenshotsFromVisualBounds(
       doc.body.offsetHeight,
       doc.documentElement.clientHeight,
       doc.documentElement.scrollHeight,
-      doc.documentElement.offsetHeight
+      doc.documentElement.offsetHeight,
     );
   });
 
-  // Set viewport to full page height for accurate screenshots.
-  page.setViewportSize(1920, fullPageHeight);
+  // Set viewport to full page height while preserving width.
+  page.setViewportSize(viewportWidth, fullPageHeight);
 
   for (const section of sections) {
     try {
       const outputPath = join(
         outputDir,
-        `preview_screenshot_${pageSuffix}_section_${section.sectionId}.png`
+        `preview_screenshot_${pageSuffix}_section_${section.sectionId}.png`,
       );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -512,4 +574,3 @@ export async function takeSectionScreenshotsFromVisualBounds(
 
   return screenshots;
 }
-
