@@ -10,8 +10,8 @@ import {
   downloadImageToPng,
   extractVisualSections,
   formatVisualSectionsAsAnalysis,
-  takeSectionScreenshotsFromVisualBounds,
 } from "../image/index.js";
+import type { VisualSection } from "../image/index.js";
 import { analyzeImagesWithVisionImageMode } from "../vision/index.js";
 import { ensureViewportSize, ensurePageFullyRendered } from "../utils/window.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
@@ -43,6 +43,118 @@ export interface ImageComparisonResult {
   diff_image: string;
   section_screenshots: Record<string, { base: string; preview: string }>;
   mode: "image-to-url";
+}
+
+function normalizeLabel(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function tokenSet(value: string): Set<string> {
+  const normalized = normalizeLabel(value);
+  if (!normalized) return new Set();
+  return new Set(normalized.split(" ").filter(Boolean));
+}
+
+function labelSimilarity(a: VisualSection, b: VisualSection): number {
+  const aTokens = tokenSet(`${a.name} ${a.sectionId}`);
+  const bTokens = tokenSet(`${b.name} ${b.sectionId}`);
+  if (aTokens.size === 0 || bTokens.size === 0) return 0;
+  let intersection = 0;
+  for (const token of aTokens) {
+    if (bTokens.has(token)) intersection += 1;
+  }
+  const union = aTokens.size + bTokens.size - intersection;
+  return union ? intersection / union : 0;
+}
+
+function alignSectionsByLabel(
+  baseSections: VisualSection[],
+  previewSections: VisualSection[],
+  baseHeight: number,
+  previewHeight: number
+): Array<{ base: VisualSection; preview: VisualSection | null }>{
+  const sortedBase = [...baseSections].sort(
+    (a, b) => a.boundingBox.y - b.boundingBox.y
+  );
+  const sortedPreview = [...previewSections].sort(
+    (a, b) => a.boundingBox.y - b.boundingBox.y
+  );
+
+  const matches: Array<{ base: VisualSection; preview: VisualSection | null }> = [];
+  let previewStartIndex = 0;
+
+  for (const base of sortedBase) {
+    let bestIndex = -1;
+    let bestScore = 0;
+    const baseMid =
+      (base.boundingBox.y + base.boundingBox.height / 2) /
+      Math.max(1, baseHeight);
+    for (let i = previewStartIndex; i < sortedPreview.length; i++) {
+      const preview = sortedPreview[i];
+      const labelScore = labelSimilarity(base, preview);
+      if (labelScore === 0) continue;
+      const previewMid =
+        (preview.boundingBox.y + preview.boundingBox.height / 2) /
+        Math.max(1, previewHeight);
+      const positionPenalty = Math.abs(baseMid - previewMid) * 0.25;
+      const score = labelScore - positionPenalty;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+
+    if (bestIndex >= 0 && bestScore >= 0.2) {
+      matches.push({ base, preview: sortedPreview[bestIndex] });
+      previewStartIndex = bestIndex + 1;
+      continue;
+    }
+
+    let closestIndex = -1;
+    let closestDiff = 1;
+    for (let i = previewStartIndex; i < sortedPreview.length; i++) {
+      const preview = sortedPreview[i];
+      const previewMid =
+        (preview.boundingBox.y + preview.boundingBox.height / 2) /
+        Math.max(1, previewHeight);
+      const diff = Math.abs(baseMid - previewMid);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestIndex = i;
+      }
+    }
+
+    if (closestIndex >= 0 && closestDiff <= 0.12) {
+      matches.push({ base, preview: sortedPreview[closestIndex] });
+      previewStartIndex = closestIndex + 1;
+    } else {
+      matches.push({ base, preview: null });
+    }
+  }
+
+  return matches;
+}
+
+async function cropSectionFromImage(
+  imagePath: string,
+  outputPath: string,
+  boundingBox: { x: number; y: number; width: number; height: number },
+  imageWidth: number,
+  imageHeight: number
+): Promise<void> {
+  const left = Math.max(0, Math.round(boundingBox.x));
+  const top = Math.max(0, Math.round(boundingBox.y));
+  const width = Math.max(1, Math.round(boundingBox.width));
+  const height = Math.max(1, Math.round(boundingBox.height));
+
+  const safeWidth = Math.min(width, Math.max(1, imageWidth - left));
+  const safeHeight = Math.min(height, Math.max(1, imageHeight - top));
+
+  const buffer = await sharp(imagePath)
+    .extract({ left, top, width: safeWidth, height: safeHeight })
+    .png()
+    .toBuffer();
+  writeFileSync(outputPath, buffer);
 }
 
 export async function performImageComparison(
@@ -93,6 +205,13 @@ export async function performImageComparison(
   writeFileSync(previewScreenshotPath, previewScreenshot);
   console.log(`Preview screenshot saved: ${previewScreenshotPath}`);
 
+  const previewMeta = await sharp(previewScreenshotPath).metadata();
+  const previewImageWidth = previewMeta.width || baseImageWidth;
+  const previewImageHeight = previewMeta.height || baseImageHeight;
+  console.log(
+    `Preview image dimensions: ${previewImageWidth}x${previewImageHeight}`
+  );
+
   // Step 3: Generate diff image.
   console.log("\n🔍 Step 3: Generating diff image...");
   const diffImagePath = join(imagesDir, `diff_${pageSuffix}.png`);
@@ -100,12 +219,16 @@ export async function performImageComparison(
   console.log(`Diff image saved: ${diffImagePath}`);
 
   // Step 4: Extract visual sections from the base image.
-  console.log("\n🤖 Step 4: Extracting visual sections using AI...");
-  const visualSectionsResult = await extractVisualSections(
+  console.log("\n🤖 Step 4: Extracting visual sections (banding + labeling)...");
+  const baseSectionsResult = await extractVisualSections(
     stagehand,
     baseScreenshotPath
   );
-  const sectionsAnalysis = formatVisualSectionsAsAnalysis(visualSectionsResult);
+  const previewSectionsResult = await extractVisualSections(
+    stagehand,
+    previewScreenshotPath
+  );
+  const sectionsAnalysis = formatVisualSectionsAsAnalysis(baseSectionsResult);
   console.log(
     `\n${"=".repeat(50)}\n🗺️ Visual Sections Analysis:\n${sectionsAnalysis}\n${"=".repeat(50)}`
   );
@@ -114,42 +237,51 @@ export async function performImageComparison(
   console.log("\n📷 Step 5: Capturing section screenshots...");
   const sectionScreenshots: Record<string, { base: string; preview: string }> = {};
 
-  const previewSectionScreenshots = await takeSectionScreenshotsFromVisualBounds(
-    stagehand,
-    previewUrl,
-    visualSectionsResult.sections,
-    imagesDir,
-    pageSuffix
+  const sectionMatches = alignSectionsByLabel(
+    baseSectionsResult.sections,
+    previewSectionsResult.sections,
+    baseImageHeight,
+    previewImageHeight
   );
 
-  // Crop base sections from the base image.
-  for (const section of visualSectionsResult.sections) {
-    const sectionId = section.sectionId;
+  for (const match of sectionMatches) {
+    const sectionId = match.base.sectionId;
+    if (!match.preview) {
+      console.warn(`No preview match for base section ${sectionId}`);
+      continue;
+    }
+
     const baseSectionPath = join(
       imagesDir,
       `base_screenshot_${pageSuffix}_section_${sectionId}.png`
     );
+    const previewSectionPath = join(
+      imagesDir,
+      `preview_screenshot_${pageSuffix}_section_${sectionId}.png`
+    );
 
     try {
-      const baseSectionScreenshot = await sharp(baseScreenshotPath)
-        .extract({
-          left: Math.max(0, Math.round(section.boundingBox.x)),
-          top: Math.max(0, Math.round(section.boundingBox.y)),
-          width: Math.max(1, Math.round(section.boundingBox.width)),
-          height: Math.max(1, Math.round(section.boundingBox.height)),
-        })
-        .png()
-        .toBuffer();
-      writeFileSync(baseSectionPath, baseSectionScreenshot);
+      await cropSectionFromImage(
+        baseScreenshotPath,
+        baseSectionPath,
+        match.base.boundingBox,
+        baseImageWidth,
+        baseImageHeight
+      );
+      await cropSectionFromImage(
+        previewScreenshotPath,
+        previewSectionPath,
+        match.preview.boundingBox,
+        previewImageWidth,
+        previewImageHeight
+      );
 
-      if (previewSectionScreenshots[sectionId]) {
-        sectionScreenshots[sectionId] = {
-          base: baseSectionPath,
-          preview: previewSectionScreenshots[sectionId],
-        };
-      }
+      sectionScreenshots[sectionId] = {
+        base: baseSectionPath,
+        preview: previewSectionPath,
+      };
     } catch (error) {
-      console.warn(`Failed to crop base section ${sectionId}: ${error}`);
+      console.warn(`Failed to crop section ${sectionId}: ${error}`);
     }
   }
 
@@ -182,4 +314,3 @@ export async function performImageComparison(
     mode: "image-to-url",
   };
 }
-
