@@ -6,4 +6,3 @@ export {
   takeSectionScreenshotsFromVisualBounds,
 } from "./visual-sections.js";
 export type { VisualSection, VisualSectionsResult } from "./visual-sections.js";
-
