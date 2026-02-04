@@ -221,7 +221,9 @@ async function extractSectionsViaVisionAPI(
 
   const userText = `Identify complete, standalone website sections in this page thumbnail in top-to-bottom order. For each section return: sectionId (kebab-case), name, description (1 sentence), and bbox (x,y,width,height) in pixels relative to the thumbnail. Thumbnail dimensions: width=${thumbW}, height=${thumbH}. Avoid tiny decorative crops.
 
-Include distinct sections such as: header/navigation, hero, how-it-works, testimonials (or quotes/reviews), pricing/packages, portfolio/gallery, services, FAQ, call-to-action, footer. Do not merge testimonial or quote blocks with adjacent sections; treat them as their own section (e.g. "Testimonials").
+Include distinct sections such as: header/navigation, client logos, social proof, logo clouds, teasers, hero, how-it-works, testimonials (or quotes/reviews), pricing/packages, portfolio/gallery, services, FAQ, call-to-action, footer. These are just examples you should be able to judge and detect sections not highlighted here.
+
+Make sure sections end on a whitespace or at least they do not cut content in the middle of a section.
 
 Return valid JSON only with this exact structure:
 {
@@ -366,6 +368,9 @@ Constraints:
 - No overlaps. Slices must be contiguous.
 - First slice yStart must be 0. Last slice yEnd must be ${thumbH}.
 - Each slice must have yEnd > yStart.
+- Cut lines must fall between sections in visual whitespace.
+- Never cut through headings, buttons, or images. If a boundary intersects content, move it to the nearest blank gap.
+- If unsure, bias toward including the full heading of the upper section.
 
 Thumbnail dimensions: width=${thumbW}, height=${thumbH}.
 
@@ -440,6 +445,132 @@ Return valid JSON only in this structure:
   }
 }
 
+async function computeRowVarianceMap(
+  imagePath: string,
+  targetWidth = 600,
+): Promise<{
+  rowScores: number[];
+  scaledHeight: number;
+  scaleY: number;
+  origHeight: number;
+}> {
+  const imageMeta = await sharp(imagePath).metadata();
+  const origHeight = imageMeta.height || 1080;
+
+  const { data, info } = await sharp(imagePath)
+    .resize({ width: targetWidth, withoutEnlargement: true })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height, channels } = info;
+  const rowScores = new Array<number>(height).fill(0);
+
+  for (let y = 0; y < height; y++) {
+    let sum = 0;
+    let sumSq = 0;
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * channels;
+      const r = data[idx] || 0;
+      const g = data[idx + 1] || 0;
+      const b = data[idx + 2] || 0;
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      sum += lum;
+      sumSq += lum * lum;
+    }
+    const mean = sum / width;
+    const variance = Math.max(0, sumSq / width - mean * mean);
+    rowScores[y] = variance;
+  }
+
+  const smoothed = rowScores.map((value, i) => {
+    const prev = rowScores[i - 1] ?? value;
+    const next = rowScores[i + 1] ?? value;
+    return (prev + value + next) / 3;
+  });
+
+  return {
+    rowScores: smoothed,
+    scaledHeight: height,
+    scaleY: origHeight / Math.max(1, height),
+    origHeight,
+  };
+}
+
+function snapBoundaryToWhitespace(
+  y: number,
+  rowScores: number[],
+  scaleY: number,
+  searchRadiusPx = 24,
+  minImprovementRatio = 0.15,
+): number {
+  const scaledY = Math.max(
+    0,
+    Math.min(rowScores.length - 1, Math.round(y / scaleY)),
+  );
+  const radius = Math.max(1, Math.round(searchRadiusPx / Math.max(0.01, scaleY)));
+  const start = Math.max(0, scaledY - radius);
+  const end = Math.min(rowScores.length - 1, scaledY + radius);
+
+  let bestIdx = scaledY;
+  let bestScore = rowScores[scaledY] ?? Number.POSITIVE_INFINITY;
+
+  for (let i = start; i <= end; i++) {
+    const score = rowScores[i];
+    if (score < bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+
+  const originalScore = rowScores[scaledY] ?? bestScore;
+  const improvement =
+    originalScore > 0 ? (originalScore - bestScore) / originalScore : 0;
+
+  if (bestIdx !== scaledY && improvement >= minImprovementRatio) {
+    return Math.round(bestIdx * scaleY);
+  }
+
+  return y;
+}
+
+export async function snapSliceBoundariesToWhitespace(
+  imagePath: string,
+  slices: VisualSectionSlice[],
+  imageHeight: number,
+): Promise<VisualSectionSlice[]> {
+  if (slices.length === 0) return slices;
+
+  const debug = process.env.BRUNI_DEBUG_SECTION_SLICES === "1";
+  const { rowScores, scaleY } = await computeRowVarianceMap(imagePath);
+
+  const adjusted: VisualSectionSlice[] = [];
+  for (let i = 0; i < slices.length; i++) {
+    const slice = slices[i];
+    let yStart = slice.yStart;
+    let yEnd = slice.yEnd;
+
+    if (i < slices.length - 1) {
+      const snapped = snapBoundaryToWhitespace(yEnd, rowScores, scaleY);
+      if (debug && snapped !== yEnd) {
+        console.log(
+          `Slice ${slice.sectionId}: yEnd ${yEnd} -> ${snapped} (snap)`,
+        );
+      }
+      yEnd = snapped;
+    } else {
+      yEnd = imageHeight;
+    }
+
+    if (yEnd <= yStart) {
+      yEnd = Math.min(imageHeight, yStart + 1);
+    }
+
+    adjusted.push({ ...slice, yStart, yEnd });
+  }
+
+  return adjusted;
+}
+
 export async function extractVisualSections(
   screenshotPath: string,
 ): Promise<VisualSectionsResult> {
@@ -507,7 +638,12 @@ export async function refineVisualSectionSlices(
     });
   }
 
-  const normalized = normalizeSlices(orderedSlices, imageDimensions.height);
+  const snappedSlices = await snapSliceBoundariesToWhitespace(
+    screenshotPath,
+    orderedSlices,
+    imageDimensions.height,
+  );
+  const normalized = normalizeSlices(snappedSlices, imageDimensions.height);
   const sections = slicesToSections(
     normalized,
     imageDimensions.width,
