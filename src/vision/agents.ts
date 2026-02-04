@@ -8,6 +8,7 @@ import {
   type ImageAnalysisResult,
 } from "./types.js";
 import { createImageComparisonHtml } from "./utils.js";
+import { extractJsonFromResponse } from "../utils/json.js";
 import { writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -345,19 +346,7 @@ export async function analyzeImagesAgent(
     }
 
     // Extract JSON from the response (may be wrapped in markdown code blocks or text).
-    let jsonString = agentResponse.trim();
-
-    // Remove markdown code blocks if present.
-    const jsonMatch = jsonString.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-    if (jsonMatch) {
-      jsonString = jsonMatch[1];
-    } else {
-      // Try to find JSON object in the response.
-      const jsonObjectMatch = jsonString.match(/\{[\s\S]*\}/);
-      if (jsonObjectMatch) {
-        jsonString = jsonObjectMatch[0];
-      }
-    }
+    const jsonString = extractJsonFromResponse(agentResponse) ?? agentResponse.trim();
 
     // Parse and validate JSON.
     let parsedJson: unknown;

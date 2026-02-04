@@ -10,6 +10,7 @@ import OpenAI from "openai";
 import { writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 import sharp from "sharp";
+import { extractJsonFromResponse } from "../utils/json.js";
 
 /**
  * Visual section detected from an image.
@@ -108,19 +109,6 @@ function toKebabCase(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .trim();
-}
-
-function extractJsonFromResponse(response: string): string | null {
-  let jsonString = response.trim();
-  const jsonMatch = jsonString.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-  if (jsonMatch) {
-    return jsonMatch[1];
-  }
-  const jsonObjectMatch = jsonString.match(/\{[\s\S]*\}/);
-  if (jsonObjectMatch) {
-    return jsonObjectMatch[0];
-  }
-  return null;
 }
 
 function normalizeSlices(
