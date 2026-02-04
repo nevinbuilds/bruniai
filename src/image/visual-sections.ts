@@ -49,6 +49,13 @@ export interface VisualSectionsResult {
   };
 }
 
+export interface VisualSectionSlice {
+  sectionId: string;
+  name: string;
+  yStart: number;
+  yEnd: number;
+}
+
 function getImageDimensions(imagePath: string): {
   width: number;
   height: number;
@@ -114,6 +121,60 @@ function extractJsonFromResponse(response: string): string | null {
     return jsonObjectMatch[0];
   }
   return null;
+}
+
+function normalizeSlices(
+  slices: VisualSectionSlice[],
+  imageHeight: number,
+): VisualSectionSlice[] {
+  const normalized: VisualSectionSlice[] = [];
+  let prevEnd = 0;
+
+  for (let i = 0; i < slices.length; i++) {
+    const slice = slices[i];
+    let yStart = Math.max(0, Math.round(slice.yStart));
+    let yEnd = Math.min(imageHeight, Math.round(slice.yEnd));
+
+    yStart = i === 0 ? 0 : prevEnd;
+    if (i === slices.length - 1) {
+      yEnd = imageHeight;
+    } else {
+      yEnd = Math.max(yEnd, yStart + 1);
+    }
+
+    if (yEnd < yStart) {
+      yEnd = Math.min(imageHeight, yStart + 1);
+    }
+
+    normalized.push({ ...slice, yStart, yEnd });
+    prevEnd = yEnd;
+  }
+
+  return normalized;
+}
+
+function slicesToSections(
+  slices: VisualSectionSlice[],
+  imageWidth: number,
+  baseSections: VisualSection[],
+): VisualSection[] {
+  const baseById = new Map(baseSections.map((s) => [s.sectionId, s]));
+  return slices.map((slice) => {
+    const base = baseById.get(slice.sectionId);
+    return {
+      name: base?.name || slice.name,
+      sectionId: slice.sectionId,
+      description: base?.description || "",
+      boundingBox: {
+        x: 0,
+        y: slice.yStart,
+        width: imageWidth,
+        height: Math.max(1, slice.yEnd - slice.yStart),
+      },
+      position: base?.position || "middle",
+      visualPatterns: base?.visualPatterns || "full-width slice",
+    };
+  });
 }
 
 /** Section extraction via OpenAI vision API only. No Stagehand, no fallback. */
@@ -246,6 +307,139 @@ Return valid JSON only with this exact structure:
   }
 }
 
+async function refineSectionSlicesViaVisionAPI(
+  screenshotPath: string,
+  sections: VisualSection[],
+): Promise<{
+  slices: VisualSectionSlice[];
+  imageDimensions: { width: number; height: number };
+  layoutDescription: string;
+} | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.warn(
+      "OPENAI_API_KEY not set; cannot refine section slices via vision API.",
+    );
+    return null;
+  }
+
+  const thumbWidth = Number(process.env.OPENAI_SLICE_THUMB_WIDTH || 1600);
+  const thumbBuf = await sharp(screenshotPath)
+    .resize({ width: thumbWidth, withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  const thumbMeta = await sharp(thumbBuf).metadata();
+  const thumbW = thumbMeta.width || thumbWidth;
+  const thumbH =
+    thumbMeta.height ||
+    Math.max(
+      1,
+      Math.round(
+        (thumbWidth * (await sharp(screenshotPath).metadata()).height!) /
+          Math.max(1, (await sharp(screenshotPath).metadata()).width!),
+      ),
+    );
+  const thumbBase64 = thumbBuf.toString("base64");
+
+  const imageMeta = await sharp(screenshotPath).metadata();
+  const origW = imageMeta.width || thumbW;
+  const origH = imageMeta.height || thumbH;
+
+  const model =
+    process.env.OPENAI_SECTION_SLICE_MODEL ||
+    process.env.OPENAI_SECTION_MODEL ||
+    process.env.SECTION_EXTRACTION_MODEL ||
+    "gpt-4o";
+
+  const systemPrompt =
+    "You are an expert visual analyst. You will be given a page screenshot thumbnail and a list of detected sections (in order). Return JSON only with clean horizontal slice boundaries for each section. Do not reorder or rename sections. No extra text.";
+
+  const sectionsList = sections
+    .map((s, i) => `${i + 1}. ${s.name} (id: ${s.sectionId})`)
+    .join("\n");
+
+  const userText = `You are given the full page thumbnail and a list of sections in order. Your task: determine the exact horizontal cut lines so each section becomes a full-width slice. Return yStart/yEnd for each section in thumbnail pixel coordinates.
+
+Constraints:
+- Preserve section order and IDs exactly.
+- Full-width slices only (x=0..width). Only return yStart/yEnd.
+- No overlaps. Slices must be contiguous.
+- First slice yStart must be 0. Last slice yEnd must be ${thumbH}.
+- Each slice must have yEnd > yStart.
+
+Thumbnail dimensions: width=${thumbW}, height=${thumbH}.
+
+Sections (in order):
+${sectionsList}
+
+Return valid JSON only in this structure:
+{
+  "slices": [
+    { "sectionId": "hero", "name": "Hero", "yStart": 0, "yEnd": 420 }
+  ],
+  "layoutDescription": "Short optional summary"
+}`;
+
+  const openai = new OpenAI({ apiKey });
+  const completion = await openai.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userText },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:image/png;base64,${thumbBase64}`,
+            },
+          },
+        ],
+      },
+    ],
+    max_tokens: 2048,
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) return null;
+
+  const jsonString = extractJsonFromResponse(content);
+  if (!jsonString) return null;
+
+  try {
+    const parsed = JSON.parse(jsonString) as {
+      slices?: Array<{
+        sectionId?: string;
+        name?: string;
+        yStart?: number;
+        yEnd?: number;
+      }>;
+      layoutDescription?: string;
+    };
+    if (!parsed.slices || !Array.isArray(parsed.slices)) return null;
+
+    const slices: VisualSectionSlice[] = [];
+    for (const s of parsed.slices) {
+      if (s.yStart == null || s.yEnd == null) continue;
+      const sectionId = s.sectionId || "";
+      const name = s.name || sectionId;
+      const yStart = Math.max(0, Math.round((s.yStart / thumbH) * origH));
+      const yEnd = Math.max(1, Math.round((s.yEnd / thumbH) * origH));
+      slices.push({ sectionId, name, yStart, yEnd });
+    }
+
+    return {
+      slices,
+      imageDimensions: { width: origW, height: origH },
+      layoutDescription:
+        parsed.layoutDescription || "Slices refined via vision API.",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function extractVisualSections(
   screenshotPath: string,
 ): Promise<VisualSectionsResult> {
@@ -275,6 +469,57 @@ export async function extractVisualSections(
   }
 
   return result;
+}
+
+export async function refineVisualSectionSlices(
+  screenshotPath: string,
+  baseSections: VisualSection[],
+): Promise<{
+  slices: VisualSectionSlice[];
+  sections: VisualSection[];
+  layoutDescription: string;
+  imageDimensions: { width: number; height: number };
+} | null> {
+  const imageDimensions = getImageDimensions(screenshotPath);
+  const result = await refineSectionSlicesViaVisionAPI(
+    screenshotPath,
+    baseSections,
+  );
+  if (!result || !result.slices || result.slices.length === 0) {
+    return null;
+  }
+
+  const sliceById = new Map(
+    result.slices.map((slice) => [slice.sectionId, slice]),
+  );
+
+  const orderedSlices: VisualSectionSlice[] = [];
+  for (const section of baseSections) {
+    const matched = sliceById.get(section.sectionId);
+    if (!matched) {
+      return null;
+    }
+    orderedSlices.push({
+      sectionId: section.sectionId,
+      name: section.name,
+      yStart: matched.yStart,
+      yEnd: matched.yEnd,
+    });
+  }
+
+  const normalized = normalizeSlices(orderedSlices, imageDimensions.height);
+  const sections = slicesToSections(
+    normalized,
+    imageDimensions.width,
+    baseSections,
+  );
+
+  return {
+    slices: normalized,
+    sections,
+    layoutDescription: result.layoutDescription,
+    imageDimensions,
+  };
 }
 
 export function formatVisualSectionsAsAnalysis(
@@ -313,6 +558,7 @@ export async function takeSectionScreenshotsFromVisualBounds(
   sections: VisualSection[],
   outputDir: string,
   pageSuffix: string,
+  indexBySectionId?: Map<string, number>,
 ): Promise<Record<string, string>> {
   const screenshots: Record<string, string> = {};
   const page = stagehand.context.pages()[0];
@@ -349,9 +595,11 @@ export async function takeSectionScreenshotsFromVisualBounds(
 
   for (const section of sections) {
     try {
+      const index = indexBySectionId?.get(section.sectionId);
+      const indexPrefix = index ? `${String(index).padStart(2, "0")}_` : "";
       const outputPath = join(
         outputDir,
-        `preview_screenshot_${pageSuffix}_section_${section.sectionId}.png`,
+        `preview_screenshot_${pageSuffix}_section_${indexPrefix}${section.sectionId}.png`,
       );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

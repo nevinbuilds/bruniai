@@ -9,6 +9,7 @@ import { generateDiffImage } from "../diff/diff.js";
 import {
   downloadImageToPng,
   extractVisualSections,
+  refineVisualSectionSlices,
   formatVisualSectionsAsAnalysis,
   takeSectionScreenshotsFromVisualBounds,
 } from "../image/index.js";
@@ -143,7 +144,22 @@ export async function performImageComparison(
     "\n🤖 Step 4: Extracting visual sections from BASE image (LLM-first)...",
   );
   // Important: sections must be derived from the BASE image only.
-  const baseSectionsResult = await extractVisualSections(baseScreenshotPath);
+  let baseSectionsResult = await extractVisualSections(baseScreenshotPath);
+  const refinedSlices = await refineVisualSectionSlices(
+    baseScreenshotPath,
+    baseSectionsResult.sections,
+  );
+  if (refinedSlices) {
+    baseSectionsResult = {
+      sections: refinedSlices.sections,
+      layoutDescription: refinedSlices.layoutDescription,
+      imageDimensions: refinedSlices.imageDimensions,
+    };
+    console.log("Refined section slice boundaries from base image.");
+  } else {
+    console.log("Using initial visual sections (no slice refinement).");
+  }
+
   const sectionsAnalysis = formatVisualSectionsAsAnalysis(baseSectionsResult);
   console.log(
     `\n${"=".repeat(50)}\n🗺️ Visual Sections Analysis:\n${sectionsAnalysis}\n${"=".repeat(50)}`,
@@ -154,6 +170,11 @@ export async function performImageComparison(
   const sectionScreenshots: Record<string, { base: string; preview: string }> =
     {};
 
+  const sectionIndexById = new Map<string, number>();
+  baseSectionsResult.sections.forEach((section, index) => {
+    sectionIndexById.set(section.sectionId, index + 1);
+  });
+
   // Capture preview section screenshots by using the bounding boxes from the base image.
   const previewSectionScreenshots =
     await takeSectionScreenshotsFromVisualBounds(
@@ -162,14 +183,17 @@ export async function performImageComparison(
       baseSectionsResult.sections,
       imagesDir,
       pageSuffix,
+      sectionIndexById,
     );
 
   // Crop base sections from the base image and pair with preview screenshots (if available).
   for (const section of baseSectionsResult.sections) {
     const sectionId = section.sectionId;
+    const index = sectionIndexById.get(sectionId);
+    const indexPrefix = index ? `${String(index).padStart(2, "0")}_` : "";
     const baseSectionPath = join(
       imagesDir,
-      `base_screenshot_${pageSuffix}_section_${sectionId}.png`,
+      `base_screenshot_${pageSuffix}_section_${indexPrefix}${sectionId}.png`,
     );
     try {
       await cropSectionFromImage(
