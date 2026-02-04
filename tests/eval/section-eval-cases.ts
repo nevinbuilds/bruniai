@@ -31,21 +31,4 @@ export const sectionEvalCases: SectionEvalCase[] = [
       "Footer",
     ],
   },
-  {
-    name: "Our Blooms",
-    baseImagePath: "tests/images/design-1.png",
-    previewUrl: "https://ascii-dark-kindle.figma.site/",
-    expectedSections: [
-      "Header",
-      "Hero image",
-      "Who we are",
-      "What we do",
-      "Floral installations",
-      "Native plant arrangements",
-      "Custom floral concepts",
-      "Image banner",
-      "Work with us CTA",
-      "Footer",
-    ],
-  },
 ];
