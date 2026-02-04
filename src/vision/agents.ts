@@ -8,6 +8,7 @@ import {
   type ImageAnalysisResult,
 } from "./types.js";
 import { createImageComparisonHtml } from "./utils.js";
+import { extractJsonFromResponse } from "../utils/json.js";
 import { writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -27,10 +28,10 @@ import { v4 as uuidv4 } from "uuid";
 export async function analyzeBaseUrlAgent(
   stagehand: Stagehand,
   base_url: string,
-  sections_analysis?: string
+  sections_analysis?: string,
 ): Promise<BaseUrlAnalysisResult> {
   console.log(
-    `\n${"=".repeat(50)}\n🔍 Agent 1: Analyzing Base URL\n${"=".repeat(50)}`
+    `\n${"=".repeat(50)}\n🔍 Agent 1: Analyzing Base URL\n${"=".repeat(50)}`,
   );
 
   // Create a fresh page for this analysis to ensure complete isolation.
@@ -81,7 +82,7 @@ export async function analyzeBaseUrlAgent(
   const result = await stagehand.extract(
     systemPrompt,
     BaseUrlAnalysisResultSchema,
-    { page }
+    { page },
   );
 
   // Close the page to prevent context leakage.
@@ -106,10 +107,10 @@ export async function analyzePreviewUrlAgent(
   stagehand: Stagehand,
   preview_url: string,
   base_analysis: BaseUrlAnalysisResult,
-  sections_analysis?: string
+  sections_analysis?: string,
 ): Promise<PreviewUrlAnalysisResult> {
   console.log(
-    `\n${"=".repeat(50)}\n🔍 Agent 2: Analyzing Preview URL\n${"=".repeat(50)}`
+    `\n${"=".repeat(50)}\n🔍 Agent 2: Analyzing Preview URL\n${"=".repeat(50)}`,
   );
 
   // Create a fresh page for this analysis to ensure complete isolation.
@@ -176,7 +177,7 @@ export async function analyzePreviewUrlAgent(
   const result = await stagehand.extract(
     systemPrompt,
     PreviewUrlAnalysisResultSchema,
-    { page }
+    { page },
   );
 
   // Close the page to prevent context leakage.
@@ -209,10 +210,10 @@ export async function analyzeImagesAgent(
   diff_image: string,
   base_url: string,
   preview_url: string,
-  sections_analysis?: string
+  sections_analysis?: string,
 ): Promise<ImageAnalysisResult> {
   console.log(
-    `\n${"=".repeat(50)}\n🔍 Agent 3: Analyzing Images\n${"=".repeat(50)}`
+    `\n${"=".repeat(50)}\n🔍 Agent 3: Analyzing Images\n${"=".repeat(50)}`,
   );
 
   // Create HTML page with images.
@@ -221,7 +222,7 @@ export async function analyzeImagesAgent(
     pr_screenshot,
     diff_image,
     base_url,
-    preview_url
+    preview_url,
   );
 
   // Create a temporary HTML file with unique filename to avoid conflicts
@@ -233,7 +234,7 @@ export async function analyzeImagesAgent(
     __dirname,
     "..",
     "..",
-    `temp-images-comparison-${uniqueId}.html`
+    `temp-images-comparison-${uniqueId}.html`,
   );
 
   writeFileSync(tempHtmlPath, comparisonHtml, "utf-8");
@@ -248,7 +249,7 @@ export async function analyzeImagesAgent(
 
     // Create a Computer Use Agent for visual understanding.
     const agent = stagehand.agent({
-      model: "openai/gpt-4.1-mini",
+      model: "openai/gpt-5-mini",
       systemPrompt: `You are an expert visual analysis assistant specializing in comparing website screenshots and identifying visual differences, missing sections, and layout issues. You must respond with valid JSON only.`,
     });
 
@@ -345,19 +346,7 @@ export async function analyzeImagesAgent(
     }
 
     // Extract JSON from the response (may be wrapped in markdown code blocks or text).
-    let jsonString = agentResponse.trim();
-
-    // Remove markdown code blocks if present.
-    const jsonMatch = jsonString.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-    if (jsonMatch) {
-      jsonString = jsonMatch[1];
-    } else {
-      // Try to find JSON object in the response.
-      const jsonObjectMatch = jsonString.match(/\{[\s\S]*\}/);
-      if (jsonObjectMatch) {
-        jsonString = jsonObjectMatch[0];
-      }
-    }
+    const jsonString = extractJsonFromResponse(agentResponse) ?? agentResponse.trim();
 
     // Parse and validate JSON.
     let parsedJson: unknown;
@@ -369,7 +358,7 @@ export async function analyzeImagesAgent(
       throw new Error(
         `Failed to parse agent response as JSON: ${
           parseError instanceof Error ? parseError.message : String(parseError)
-        }`
+        }`,
       );
     }
 

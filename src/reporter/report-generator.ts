@@ -7,6 +7,7 @@ import type {
   VisualChangesStatus,
   RecommendationStatus,
   ImageReferences,
+  ComparisonMode,
 } from "./types.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
 
@@ -77,8 +78,8 @@ export function determineStatusFromVisualAnalysis(
 /**
  * Parse multiple page analysis results and generate a structured multi-page report.
  *
- * @param prNumber - PR number
- * @param repository - Repository name
+ * @param prNumber - PR number.
+ * @param repository - Repository name.
  * @param pageResults - List of page result objects containing:
  *   - page_path: string
  *   - base_url: string
@@ -86,7 +87,8 @@ export function determineStatusFromVisualAnalysis(
  *   - visual_analysis: VisualAnalysisResult or dict
  *   - sections_analysis: string
  *   - image_refs: Optional ImageReferences
- * @returns MultiPageReportData with test_data and reports
+ * @param comparisonMode - Optional comparison mode (url-to-url or image-to-url).
+ * @returns MultiPageReportData with test_data and reports.
  */
 export function parseMultiPageAnalysisResults(
   prNumber: string,
@@ -98,13 +100,15 @@ export function parseMultiPageAnalysisResults(
     visual_analysis: VisualAnalysisResult | Record<string, any>;
     sections_analysis: string;
     image_refs?: ImageReferences | null;
-  }>
+  }>,
+  comparisonMode?: ComparisonMode
 ): MultiPageReportData {
-  // Create test data
+  // Create test data.
   const testData: TestData = {
     pr_number: prNumber,
     repository: repository,
     timestamp: new Date().toISOString(),
+    comparison_mode: comparisonMode || "url-to-url",
   };
 
   // Process each page result

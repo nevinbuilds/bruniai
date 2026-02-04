@@ -1,4 +1,7 @@
-export { analyzeImagesWithVision } from "./vision.js";
+export {
+  analyzeImagesWithVision,
+  analyzeImagesWithVisionImageMode,
+} from "./vision.js";
 export type {
   VisualAnalysisResult,
   AnalyzeImagesInput,

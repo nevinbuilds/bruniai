@@ -8,11 +8,14 @@ import {
 } from "./github/pr-comments.js";
 import { parseArgs } from "./args.js";
 import { performComparison } from "./comparison/core.js";
+import { performImageComparison } from "./comparison/image-core.js";
+import { isImageSourceUrl } from "./image/index.js";
 import {
   BruniReporter,
   parseMultiPageAnalysisResults,
   encodeImageCompressed,
 } from "./reporter/index.js";
+import type { ComparisonMode } from "./reporter/index.js";
 import { ensureViewportSize } from "./utils/window.js";
 import type { VisualAnalysisResult } from "./vision/types.js";
 
@@ -48,8 +51,13 @@ async function main() {
     prNumber = await getPrNumberFromEvent();
   }
 
+  // Detect if base URL is an image URL (image-to-url mode).
+  const isImageMode = isImageSourceUrl(args.baseUrl);
+  const comparisonMode = isImageMode ? "image-to-url" : "url-to-url";
+
   console.log("Base URL:", args.baseUrl);
   console.log("PR URL:", args.prUrl);
+  console.log("Comparison Mode:", comparisonMode);
   console.log("PR Title:", title);
   console.log("PR Description:", description);
   console.log("Repository:", repo);
@@ -112,26 +120,47 @@ async function main() {
   }> = [];
 
   // Process each page sequentially to avoid race conditions.
-  for (const page of pages) {
+  // For image mode, we only process a single baseline image (no page paths).
+  const pagesToProcess = isImageMode ? ["/"] : pages;
+
+  for (const page of pagesToProcess) {
     console.log("Processing page ------ ", page);
 
     // Construct full URLs for this page.
-    const baseUrl = args.baseUrl!.replace(/\/$/, "") + page;
-    const prUrl = args.prUrl!.replace(/\/$/, "") + page;
+    // For image mode, use the URLs directly without appending page path.
+    const baseUrl = isImageMode
+      ? args.baseUrl!
+      : args.baseUrl!.replace(/\/$/, "") + page;
+    const prUrl = isImageMode ? args.prUrl! : args.prUrl!.replace(/\/$/, "") + page;
 
     console.log(`Base URL: ${baseUrl}`);
     console.log(`PR URL: ${prUrl}`);
 
-    // Perform the core comparison using shared function.
-    const result = await performComparison({
-      stagehand,
-      baseUrl: args.baseUrl!,
-      previewUrl: args.prUrl!,
-      page,
-      imagesDir,
-      prNumber: prNumber?.toString(),
-      repository: repo || undefined,
-    });
+    // Perform the comparison using the appropriate function based on mode.
+    let result;
+    if (isImageMode) {
+      // Use image-to-URL comparison.
+      result = await performImageComparison({
+        stagehand,
+        baseImageUrl: args.baseUrl!,
+        previewUrl: args.prUrl!,
+        page,
+        imagesDir,
+        prNumber: prNumber?.toString(),
+        repository: repo || undefined,
+      });
+    } else {
+      // Use standard URL-to-URL comparison.
+      result = await performComparison({
+        stagehand,
+        baseUrl: args.baseUrl!,
+        previewUrl: args.prUrl!,
+        page,
+        imagesDir,
+        prNumber: prNumber?.toString(),
+        repository: repo || undefined,
+      });
+    }
 
     console.log("Visual analysis completed:", result.visual_analysis.status);
 
@@ -305,11 +334,12 @@ async function main() {
         });
       }
 
-      // Create multi-page report
+      // Create multi-page report.
       const multiPageReport = parseMultiPageAnalysisResults(
         prNumber?.toString() || "",
         repo || "",
-        pageResults
+        pageResults,
+        comparisonMode as ComparisonMode
       );
 
       // Send multi-page report

@@ -14,6 +14,7 @@ export type {
   CriticalIssuesStatus,
   VisualChangesStatus,
   RecommendationStatus,
+  ComparisonMode,
   SectionInfo,
   CriticalIssues,
   StructuralAnalysis,

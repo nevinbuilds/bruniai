@@ -6,7 +6,7 @@ import {
   takeSectionScreenshot,
 } from "../sections/sectionExtraction.js";
 import { analyzeImagesWithVision } from "../vision/index.js";
-import { ensureViewportSize } from "../utils/window.js";
+import { ensureViewportSize, ensurePageFullyRendered } from "../utils/window.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
 import { join } from "path";
 import { writeFileSync } from "fs";
@@ -89,6 +89,8 @@ export async function performComparison(
 
   // Ensure viewport is set correctly before navigating and taking screenshot.
   await ensureViewportSize(initialPage, fullBaseUrl);
+  // Scroll through the page to trigger lazy loading and wait for images.
+  await ensurePageFullyRendered(initialPage);
 
   const baseScreenshot = await initialPage.screenshot({
     fullPage: true,
@@ -102,6 +104,7 @@ export async function performComparison(
 
   // Ensure viewport is set correctly before navigating to preview URL and taking screenshot.
   await ensureViewportSize(initialPage, fullPreviewUrl);
+  await ensurePageFullyRendered(initialPage);
 
   const previewScreenshot = await initialPage.screenshot({
     fullPage: true,
