@@ -441,6 +441,7 @@ async function computeRowVarianceMap(
   scaledHeight: number;
   scaleY: number;
   origHeight: number;
+  stats: { p25: number; median: number; p75: number };
 }> {
   const imageMeta = await sharp(imagePath).metadata();
   const origHeight = imageMeta.height || 1080;
@@ -476,11 +477,17 @@ async function computeRowVarianceMap(
     return (prev + value + next) / 3;
   });
 
+  const sorted = [...smoothed].sort((a, b) => a - b);
+  const q = (p: number) =>
+    sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * p)))] ??
+    0;
+
   return {
     rowScores: smoothed,
     scaledHeight: height,
     scaleY: origHeight / Math.max(1, height),
     origHeight,
+    stats: { p25: q(0.25), median: q(0.5), p75: q(0.75) },
   };
 }
 
@@ -488,33 +495,57 @@ function snapBoundaryToWhitespace(
   y: number,
   rowScores: number[],
   scaleY: number,
-  searchRadiusPx = 24,
-  minImprovementRatio = 0.15,
+  stats: { p25: number; median: number; p75: number },
+  searchRadiusPx = 48,
+  windowPx = 12,
+  minImprovementRatio = 0.12,
 ): number {
   const scaledY = Math.max(
     0,
     Math.min(rowScores.length - 1, Math.round(y / scaleY)),
   );
-  const radius = Math.max(1, Math.round(searchRadiusPx / Math.max(0.01, scaleY)));
+  const radius = Math.max(
+    1,
+    Math.round(searchRadiusPx / Math.max(0.01, scaleY)),
+  );
   const start = Math.max(0, scaledY - radius);
   const end = Math.min(rowScores.length - 1, scaledY + radius);
 
+  const prefix = new Array<number>(rowScores.length + 1);
+  prefix[0] = 0;
+  for (let i = 0; i < rowScores.length; i++) {
+    prefix[i + 1] = prefix[i] + rowScores[i];
+  }
+  const windowRadius = Math.max(0, Math.round(windowPx / 2 / Math.max(0.01, scaleY)));
+  const windowAvg = (idx: number) => {
+    const wStart = Math.max(0, idx - windowRadius);
+    const wEnd = Math.min(rowScores.length - 1, idx + windowRadius);
+    const sum = prefix[wEnd + 1] - prefix[wStart];
+    return sum / Math.max(1, wEnd - wStart + 1);
+  };
+
   let bestIdx = scaledY;
-  let bestScore = rowScores[scaledY] ?? Number.POSITIVE_INFINITY;
+  let bestScore = windowAvg(scaledY);
 
   for (let i = start; i <= end; i++) {
-    const score = rowScores[i];
+    const score = windowAvg(i);
     if (score < bestScore) {
       bestScore = score;
       bestIdx = i;
     }
   }
 
-  const originalScore = rowScores[scaledY] ?? bestScore;
+  const originalScore = windowAvg(scaledY);
   const improvement =
     originalScore > 0 ? (originalScore - bestScore) / originalScore : 0;
 
-  if (bestIdx !== scaledY && improvement >= minImprovementRatio) {
+  const shouldSnap =
+    bestIdx !== scaledY &&
+    (improvement >= minImprovementRatio ||
+      originalScore >= stats.p75 ||
+      bestScore <= stats.p25);
+
+  if (shouldSnap) {
     return Math.round(bestIdx * scaleY);
   }
 
@@ -529,7 +560,14 @@ export async function snapSliceBoundariesToWhitespace(
   if (slices.length === 0) return slices;
 
   const debug = process.env.BRUNI_DEBUG_SECTION_SLICES === "1";
-  const { rowScores, scaleY } = await computeRowVarianceMap(imagePath);
+  const { rowScores, scaleY, stats } = await computeRowVarianceMap(imagePath);
+  const searchRadiusPx = Number(
+    process.env.BRUNI_SLICE_SNAP_RADIUS_PX || 48,
+  );
+  const windowPx = Number(process.env.BRUNI_SLICE_SNAP_WINDOW_PX || 12);
+  const minImprovementRatio = Number(
+    process.env.BRUNI_SLICE_SNAP_MIN_IMPROVEMENT || 0.12,
+  );
 
   const adjusted: VisualSectionSlice[] = [];
   for (let i = 0; i < slices.length; i++) {
@@ -538,7 +576,15 @@ export async function snapSliceBoundariesToWhitespace(
     let yEnd = slice.yEnd;
 
     if (i < slices.length - 1) {
-      const snapped = snapBoundaryToWhitespace(yEnd, rowScores, scaleY);
+      const snapped = snapBoundaryToWhitespace(
+        yEnd,
+        rowScores,
+        scaleY,
+        stats,
+        searchRadiusPx,
+        windowPx,
+        minImprovementRatio,
+      );
       if (debug && snapped !== yEnd) {
         console.log(
           `Slice ${slice.sectionId}: yEnd ${yEnd} -> ${snapped} (snap)`,
