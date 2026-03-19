@@ -2,9 +2,11 @@
  * Section extraction eval tests.
  *
  * Runs extractVisualSections on baseline images and compares extracted
- * sections to expected section names. Requires OPENAI_API_KEY; skipped
- * when not set so CI without the key still passes.
- * OPENAI_API_KEY can be set in the environment or in a .env file at project root.
+ * sections to expected section names.
+ *
+ * The deterministic extractor in image mode no longer aims to produce
+ * semantic section labels. This eval remains useful as an opt-in benchmark
+ * for future tuning, but it should not gate the standard test suite.
  */
 import "dotenv/config";
 
@@ -15,11 +17,11 @@ import { extractVisualSections } from "../../src/image/index.js";
 import { sectionEvalCases } from "./section-eval-cases.js";
 import { matchSections } from "./section-match.js";
 
-const hasApiKey = Boolean(process.env.OPENAI_API_KEY);
+const runSectionEval = process.env.RUN_SECTION_EVAL === "1";
 
 describe("Section extraction eval", () => {
   for (const evalCase of sectionEvalCases) {
-    it.skipIf(!hasApiKey)(
+    it.skipIf(!runSectionEval)(
       `matches expected sections for: ${evalCase.name}`,
       async () => {
         const absolutePath = join(process.cwd(), evalCase.baseImagePath);
