@@ -75,7 +75,16 @@ export interface VisualSectionMatch {
   matchedRange: SectionRange | null;
   matchScore: number;
   similarityScore: number;
+  signals: VisualSectionSignals;
+  humanDescription: string;
   status: "matched" | "problematic" | "missing";
+}
+
+export interface VisualSectionSignals {
+  pixelDifference: number;
+  edgeDifference: number;
+  structuralSimilarity: number;
+  finalSimilarityScore: number;
 }
 
 interface RawImage {
@@ -97,7 +106,8 @@ const MERGE_BOUNDARY_GAP = 120;
 const TARGET_SECTION_HEIGHT = 260;
 const MATCH_STEP = 32;
 const LOCAL_SEARCH_BAND = 300;
-const MISSING_MATCH_THRESHOLD = 0.55;
+const MISSING_MATCH_THRESHOLD = 0.2;
+const LOW_CONFIDENCE_MATCH_THRESHOLD = 0.55;
 const PROBLEMATIC_SECTION_THRESHOLD = 0.75;
 const MATCH_TIE_BAND = 0.02;
 
@@ -521,17 +531,93 @@ function computeSsim(a: Float64Array, b: Float64Array): number {
   return clamp(numerator / denominator, 0, 1);
 }
 
+function computeVisualSignals(
+  designGray: Float64Array,
+  candidateGray: Float64Array,
+  designEdge: Float64Array,
+  candidateEdge: Float64Array,
+): VisualSectionSignals {
+  const pixelDifference = clamp(
+    meanAbsoluteDifference(designGray, candidateGray) / 255,
+    0,
+    1,
+  );
+  const edgeDifference = clamp(
+    meanAbsoluteDifference(designEdge, candidateEdge) / 255,
+    0,
+    1,
+  );
+  const structuralSimilarity = computeSsim(designGray, candidateGray);
+  const finalSimilarityScore = clamp(
+    structuralSimilarity * 0.45 +
+      (1 - pixelDifference) * 0.3 +
+      (1 - edgeDifference) * 0.25,
+    0,
+    1,
+  );
+
+  return {
+    pixelDifference,
+    edgeDifference,
+    structuralSimilarity,
+    finalSimilarityScore,
+  };
+}
+
 function computeSimilarity(
   designGray: Float64Array,
   candidateGray: Float64Array,
   designEdge: Float64Array,
   candidateEdge: Float64Array,
 ): number {
-  const graySsim = computeSsim(designGray, candidateGray);
-  const edgeSsim = computeSsim(designEdge, candidateEdge);
-  const diffScore = 1 - clamp(meanAbsoluteDifference(designGray, candidateGray) / 255, 0, 1);
+  return computeVisualSignals(
+    designGray,
+    candidateGray,
+    designEdge,
+    candidateEdge,
+  ).finalSimilarityScore;
+}
 
-  return clamp(0.45 * edgeSsim + 0.35 * graySsim + 0.2 * diffScore, 0, 1);
+function describeSectionDifference(
+  status: VisualSectionMatch["status"],
+  signals: VisualSectionSignals,
+  matchScore: number,
+): string {
+  if (status === "missing") {
+    return "No corresponding webpage region was confidently matched for this section.";
+  }
+
+  const notes: string[] = [];
+
+  if (signals.structuralSimilarity < 0.55) {
+    notes.push("the overall layout structure differs");
+  }
+
+  if (signals.pixelDifference > 0.24) {
+    notes.push("colors, fills, or spacing differ visibly");
+  }
+
+  if (signals.edgeDifference > 0.28) {
+    notes.push("text, icon, or border contours do not line up");
+  }
+
+  if (matchScore < LOW_CONFIDENCE_MATCH_THRESHOLD) {
+    notes.push("the best matched webpage region was found with low confidence");
+  }
+
+  if (status === "matched") {
+    if (notes.length === 0) {
+      return "This section is visually close to the design with no material differences detected.";
+    }
+
+    return `This section is visually close overall, but ${notes.join(" and ")}.`;
+  }
+
+  if (notes.length === 0) {
+    return "A corresponding webpage region was found, but the section differs materially from the design.";
+  }
+
+  return `A corresponding webpage region was found, but ${notes.join(" and ")}.`;
 }
 
 function normalizeSlices(
@@ -1189,6 +1275,7 @@ export async function matchVisualSections(
     stepPx?: number;
     localBandPx?: number;
     missingThreshold?: number;
+    lowConfidenceThreshold?: number;
     problematicThreshold?: number;
     matchingWidth?: number;
   },
@@ -1211,6 +1298,8 @@ export async function matchVisualSections(
   const stepPx = options?.stepPx ?? MATCH_STEP;
   const localBandPx = options?.localBandPx ?? LOCAL_SEARCH_BAND;
   const missingThreshold = options?.missingThreshold ?? MISSING_MATCH_THRESHOLD;
+  const lowConfidenceThreshold =
+    options?.lowConfidenceThreshold ?? LOW_CONFIDENCE_MATCH_THRESHOLD;
   const problematicThreshold =
     options?.problematicThreshold ?? PROBLEMATIC_SECTION_THRESHOLD;
 
@@ -1284,7 +1373,10 @@ export async function matchVisualSections(
     );
     let best = chooseBestMatch(localStarts, scaledExpectedStart, scoreAt);
 
-    if ((best.start == null || best.score < missingThreshold) && previewFeatures.height > scaledHeight) {
+    if (
+      (best.start == null || best.score < lowConfidenceThreshold) &&
+      previewFeatures.height > scaledHeight
+    ) {
       const fullStarts = generateSearchStarts(
         scaledExpectedStart,
         previewFeatures.height,
@@ -1321,6 +1413,22 @@ export async function matchVisualSections(
         matchedRange: null,
         matchScore: clamp(best.score, 0, 1),
         similarityScore: 0,
+        signals: {
+          pixelDifference: 1,
+          edgeDifference: 1,
+          structuralSimilarity: 0,
+          finalSimilarityScore: 0,
+        },
+        humanDescription: describeSectionDifference(
+          "missing",
+          {
+            pixelDifference: 1,
+            edgeDifference: 1,
+            structuralSimilarity: 0,
+            finalSimilarityScore: 0,
+          },
+          clamp(best.score, 0, 1),
+        ),
         status: "missing",
       });
       continue;
@@ -1351,19 +1459,36 @@ export async function matchVisualSections(
       matchedEndY,
     );
 
-    const similarityScore = computeSimilarity(
+    const signals = computeVisualSignals(
       fullGrayDesign,
       fullGrayPreview,
       fullEdgeDesign,
       fullEdgePreview,
     );
+    const similarityScore = signals.finalSimilarityScore;
 
+    const normalizedMatchScore = clamp(best.score, 0, 1);
+    const isMissing = normalizedMatchScore < missingThreshold;
     const status =
-      best.score < missingThreshold
+      isMissing
         ? "missing"
-        : similarityScore < problematicThreshold
+        : normalizedMatchScore < lowConfidenceThreshold ||
+            similarityScore < problematicThreshold
           ? "problematic"
           : "matched";
+    const finalSignals = isMissing
+      ? {
+          pixelDifference: 1,
+          edgeDifference: 1,
+          structuralSimilarity: 0,
+          finalSimilarityScore: 0,
+        }
+      : signals;
+    const humanDescription = describeSectionDifference(
+      status,
+      finalSignals,
+      normalizedMatchScore,
+    );
 
     matches.push({
       sectionId: section.sectionId,
@@ -1373,12 +1498,16 @@ export async function matchVisualSections(
         startY: designStartY,
         endY: designEndY,
       },
-      matchedRange: {
-        startY: matchedStartY,
-        endY: matchedEndY,
-      },
-      matchScore: clamp(best.score, 0, 1),
+      matchedRange: isMissing
+        ? null
+        : {
+            startY: matchedStartY,
+            endY: matchedEndY,
+          },
+      matchScore: normalizedMatchScore,
       similarityScore: clamp(similarityScore, 0, 1),
+      signals: finalSignals,
+      humanDescription,
       status,
     });
   }
@@ -1424,8 +1553,12 @@ export function formatMatchedSectionsAsAnalysis(
     }\n`;
     output += `   - Match Score: ${match.matchScore.toFixed(3)}\n`;
     output += `   - Similarity Score: ${match.similarityScore.toFixed(3)}\n`;
+    output += `   - Pixel Difference: ${match.signals.pixelDifference.toFixed(3)}\n`;
+    output += `   - Edge Difference: ${match.signals.edgeDifference.toFixed(3)}\n`;
+    output += `   - Structural Similarity: ${match.signals.structuralSimilarity.toFixed(3)}\n`;
     output += `   - Status: ${match.status}\n`;
-    output += `   - Description: ${match.description}\n\n`;
+    output += `   - Description: ${match.humanDescription}\n`;
+    output += `   - Detection Notes: ${match.description}\n\n`;
   });
 
   return output;

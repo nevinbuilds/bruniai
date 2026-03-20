@@ -15,5 +15,6 @@ export type {
   VisualSectionsResult,
   TrimResult,
   VisualSectionMatch,
+  VisualSectionSignals,
 } from "./visual-sections.js";
 export { buildImageModeVisualAnalysis } from "./report.js";

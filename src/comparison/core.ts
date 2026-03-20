@@ -8,6 +8,7 @@ import {
 import { analyzeImagesWithVision } from "../vision/index.js";
 import { ensureViewportSize, ensurePageFullyRendered } from "../utils/window.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
+import type { SectionVisualResult } from "../reporter/types.js";
 import { join } from "path";
 import { writeFileSync } from "fs";
 
@@ -47,6 +48,8 @@ export interface ComparisonResult {
   diff_image: string;
   /** Section screenshots keyed by section ID. */
   section_screenshots: Record<string, { base: string; preview: string }>;
+  /** Optional deterministic section-level diff data. */
+  section_results?: SectionVisualResult[];
 }
 
 /**

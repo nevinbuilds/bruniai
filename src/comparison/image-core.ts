@@ -20,6 +20,7 @@ import {
   ensurePageFullyRendered,
 } from "../utils/window.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
+import type { SectionVisualResult } from "../reporter/types.js";
 import { join } from "path";
 import { writeFileSync } from "fs";
 import sharp from "sharp";
@@ -41,6 +42,7 @@ export interface ImageComparisonResult {
   preview_screenshot: string;
   diff_image: string;
   section_screenshots: Record<string, { base: string; preview: string }>;
+  section_results: SectionVisualResult[];
   mode: "image-to-url";
 }
 
@@ -150,6 +152,7 @@ export async function performImageComparison(
 
   console.log("\n🖼️ Step 8: Cropping matched section screenshots...");
   const sectionScreenshots: Record<string, { base: string; preview: string }> = {};
+  const sectionResults: SectionVisualResult[] = [];
 
   for (let index = 0; index < sectionMatches.length; index++) {
     const match = sectionMatches[index];
@@ -168,6 +171,7 @@ export async function performImageComparison(
     });
 
     let previewSectionPath = "";
+    let sectionDiffPath = "";
     if (match.matchedRange) {
       previewSectionPath = join(
         imagesDir,
@@ -180,17 +184,52 @@ export async function performImageComparison(
         height: match.matchedRange.endY - match.matchedRange.startY,
       });
 
-      const sectionDiffPath = join(
+      sectionDiffPath = join(
         imagesDir,
         `diff_${pageSuffix}_section_${indexPrefix}${match.sectionId}.png`,
       );
       await generateDiffImage(baseSectionPath, previewSectionPath, sectionDiffPath);
     }
 
-    sectionScreenshots[match.sectionId] = {
-      base: baseSectionPath,
-      preview: previewSectionPath,
-    };
+    if (previewSectionPath) {
+      sectionScreenshots[match.sectionId] = {
+        base: baseSectionPath,
+        preview: previewSectionPath,
+      };
+    }
+
+    sectionResults.push({
+      section_id: match.sectionId,
+      name: match.name,
+      status: match.status,
+      design_range: {
+        start_y: match.designRange.startY,
+        end_y: match.designRange.endY,
+      },
+      matched_range: match.matchedRange
+        ? {
+            start_y: match.matchedRange.startY,
+            end_y: match.matchedRange.endY,
+          }
+        : null,
+      match_score: match.matchScore,
+      similarity_score: match.similarityScore,
+      signals: {
+        pixel_difference: match.signals.pixelDifference,
+        edge_difference: match.signals.edgeDifference,
+        structural_similarity: match.signals.structuralSimilarity,
+        final_similarity_score: match.signals.finalSimilarityScore,
+      },
+      description: match.humanDescription,
+      image_refs:
+        previewSectionPath && sectionDiffPath
+          ? {
+              base: baseSectionPath,
+              preview: previewSectionPath,
+              diff: sectionDiffPath,
+            }
+          : null,
+    });
   }
 
   console.log("\n🧠 Step 9: Building deterministic report...");
@@ -209,6 +248,7 @@ export async function performImageComparison(
     preview_screenshot: previewScreenshotPath,
     diff_image: diffImagePath,
     section_screenshots: sectionScreenshots,
+    section_results: sectionResults,
     mode: "image-to-url",
   };
 }

@@ -16,6 +16,7 @@ import {
   encodeImageCompressed,
 } from "./reporter/index.js";
 import type { ComparisonMode } from "./reporter/index.js";
+import type { SectionVisualResult } from "./reporter/index.js";
 import { ensureViewportSize } from "./utils/window.js";
 import type { VisualAnalysisResult } from "./vision/types.js";
 
@@ -117,6 +118,7 @@ async function main() {
     pr_screenshot: string;
     diff_output_path: string;
     section_screenshots: Record<string, { base: string; pr: string }>;
+    section_results?: SectionVisualResult[] | null;
   }> = [];
 
   // Process each page sequentially to avoid race conditions.
@@ -191,6 +193,7 @@ async function main() {
       pr_screenshot: result.preview_screenshot,
       diff_output_path: result.diff_image,
       section_screenshots: sectionScreenshots,
+      section_results: result.section_results || null,
     });
   }
 

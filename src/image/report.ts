@@ -84,8 +84,7 @@ export function buildImageModeVisualAnalysis(
     },
     visual_changes: {
       diff_highlights: [...problematicSections, ...missingSections].map(
-        (section) =>
-          `${section.name}: match=${section.matchScore.toFixed(3)}, similarity=${section.similarityScore.toFixed(3)}`,
+        (section) => `${section.name}: ${section.humanDescription}`,
       ),
       animation_issues: "No animation analysis in deterministic image mode.",
       conclusion:

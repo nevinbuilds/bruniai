@@ -46,6 +46,37 @@ export interface ImageReferences {
   section_screenshots?: Record<string, { base: string; pr: string }> | null; // Section screenshots with structure: {section_id: {base: "base64", pr: "base64"}}
 }
 
+export interface SectionRangeReport {
+  start_y: number;
+  end_y: number;
+}
+
+export interface SectionSignalsReport {
+  pixel_difference: number;
+  edge_difference: number;
+  structural_similarity: number;
+  final_similarity_score: number;
+}
+
+export interface SectionImageReferences {
+  base: string;
+  preview: string;
+  diff: string;
+}
+
+export interface SectionVisualResult {
+  section_id: string;
+  name: string;
+  status: "matched" | "problematic" | "missing";
+  design_range: SectionRangeReport;
+  matched_range: SectionRangeReport | null;
+  match_score: number;
+  similarity_score: number;
+  signals: SectionSignalsReport;
+  description: string;
+  image_refs: SectionImageReferences | null;
+}
+
 // Multi-page API types
 export interface TestData {
   pr_number: string;
