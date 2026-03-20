@@ -1,18 +1,41 @@
 import { Stagehand } from "@browserbasehq/stagehand";
+import OpenAI from "openai";
 import {
   BaseUrlAnalysisResultSchema,
   PreviewUrlAnalysisResultSchema,
   ImageAnalysisResultSchema,
+  SectionDiffExplanationsSchema,
   type BaseUrlAnalysisResult,
   type PreviewUrlAnalysisResult,
   type ImageAnalysisResult,
+  type SectionDiffExplanation,
 } from "./types.js";
-import { createImageComparisonHtml } from "./utils.js";
+import {
+  createImageComparisonHtml,
+  type SectionDiffReviewCard,
+} from "./utils.js";
 import { extractJsonFromResponse } from "../utils/json.js";
-import { writeFileSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
+
+export interface AnalyzeSectionDiffExplanationsInput
+  extends SectionDiffReviewCard {
+  section_id: string;
+}
+
+function isUnusableSectionExplanation(explanation: string): boolean {
+  const normalized = explanation.trim().toLowerCase();
+  return (
+    normalized.length < 24 ||
+    normalized === "overall layout structure differs." ||
+    normalized === "the section differs materially from the design." ||
+    normalized === "a corresponding webpage region was found." ||
+    normalized === "visible differences are present." ||
+    normalized === "layout is different."
+  );
+}
 
 /**
  * Analyze base URL structure, sections, and layout.
@@ -248,10 +271,12 @@ export async function analyzeImagesAgent(
     });
 
     // Create a Computer Use Agent for visual understanding.
-    const agent = stagehand.agent({
+    const agent = stagehand.agent(({
       model: "openai/gpt-5-mini",
+      // Stagehand defaults temperature for agent calls; null disables that for reasoning models.
+      temperature: null,
       systemPrompt: `You are an expert visual analysis assistant specializing in comparing website screenshots and identifying visual differences, missing sections, and layout issues. You must respond with valid JSON only.`,
-    });
+    } as unknown) as Parameters<typeof stagehand.agent>[0]);
 
     // Use the agent to visually analyze the images and return structured JSON.
     const agentInstruction = `
@@ -377,4 +402,119 @@ export async function analyzeImagesAgent(
       console.warn(`Warning: Could not delete temporary file: ${cleanupError}`);
     }
   }
+}
+
+export async function analyzeSectionDiffExplanationsAgent(
+  cards: AnalyzeSectionDiffExplanationsInput[],
+  base_url: string,
+  preview_url: string,
+): Promise<SectionDiffExplanation[]> {
+  if (cards.length === 0) {
+    return [];
+  }
+
+  console.log(
+    `\n${"=".repeat(50)}\n🔍 Agent 4: Explaining Problematic Sections\n${"=".repeat(50)}`,
+  );
+
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+  const explanations: SectionDiffExplanation[] = [];
+
+  for (const card of cards) {
+    try {
+      const baseImage = readFileSync(card.base_screenshot).toString("base64");
+      const previewImage = readFileSync(card.preview_screenshot).toString("base64");
+      const diffImage = readFileSync(card.diff_image).toString("base64");
+      const response = await client.responses.create({
+        model: "gpt-5-mini",
+        input: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: "You are an expert visual UI reviewer. Compare one design crop, one webpage crop, and one diff image. Return valid JSON only.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Review this single section comparison from ${base_url} to ${preview_url}.
+
+Section name: ${card.name}
+Section id: ${card.section_id}
+Match score: ${card.match_score.toFixed(3)}
+Final similarity score: ${card.final_similarity_score.toFixed(3)}
+Pixel difference: ${card.pixel_difference.toFixed(3)}
+Edge difference: ${card.edge_difference.toFixed(3)}
+Structural similarity: ${card.structural_similarity.toFixed(3)}
+
+Write a human-readable explanation of what is visibly different in this section.
+
+Rules:
+- Do not decide whether the section matched; that was already determined.
+- Mention at least one concrete visible element or property such as a heading, card, image, icon, button, text block, spacing, padding, alignment, border, background, column layout, or text wrapping.
+- If the section looks visually close, say that and mention any minor visible deviation.
+- If the crop looks ambiguous or weakly matched, say that clearly.
+- Keep the explanation to 1 or 2 sentences.
+- Do not use generic phrases like "overall layout structure differs", "a corresponding webpage region was found", or "the section differs materially from the design" unless you also name specific visible changes.
+- explanation_confidence must be between 0 and 1.
+
+Return ONLY JSON in this exact format:
+{
+  "sections": [
+    {
+      "section_id": "${card.section_id}",
+      "explanation": "Concrete explanation of the visible difference.",
+      "explanation_confidence": 0.84
+    }
+  ]
+}`,
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/png;base64,${baseImage}`,
+                detail: "high",
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/png;base64,${previewImage}`,
+                detail: "high",
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/png;base64,${diffImage}`,
+                detail: "high",
+              },
+            ],
+          },
+        ],
+      });
+
+      const agentResponse = response.output_text || "";
+      const jsonString = extractJsonFromResponse(agentResponse) ?? agentResponse.trim();
+      const parsedJson = JSON.parse(jsonString);
+      const result = SectionDiffExplanationsSchema.parse(parsedJson);
+      const explanation = result.sections.find(
+        (section) => section.section_id === card.section_id,
+      );
+
+      if (explanation && !isUnusableSectionExplanation(explanation.explanation)) {
+        explanations.push(explanation);
+      } else {
+        console.warn(
+          `Section explanation for ${card.section_id} was too generic or missing in model output.`,
+        );
+      }
+    } catch (error) {
+      console.warn(`Section explanation request failed for ${card.section_id}: ${error}`);
+    }
+  }
+
+  return explanations;
 }

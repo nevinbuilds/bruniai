@@ -1,49 +1,31 @@
 /**
- * Visual section detection for screenshot/image baselines.
+ * Deterministic section detection and matching for image-to-URL comparisons.
  *
- * Uses an LLM vision API only (no DOM, no banding fallback). Sections are
- * extracted from a thumbnail and bounding boxes are scaled to the full image.
+ * This module intentionally avoids LLM-based section extraction. It trims
+ * uniform margins from the design image, segments the design into full-width
+ * vertical sections, and matches each section against the normalized webpage
+ * screenshot using structural similarity.
  */
 
-import { Stagehand } from "@browserbasehq/stagehand";
-import OpenAI from "openai";
-import { writeFileSync, readFileSync } from "fs";
-import { join } from "path";
 import sharp from "sharp";
-import { extractJsonFromResponse } from "../utils/json.js";
 
-/**
- * Visual section detected from an image.
- */
 export interface VisualSection {
-  /** Name of the section (e.g., "Hero Section", "Navigation"). */
   name: string;
-  /** Unique identifier for this section. */
   sectionId: string;
-  /** Description of the section content and purpose. */
   description: string;
-  /** Bounding box of the section in pixels. */
   boundingBox: {
     x: number;
     y: number;
     width: number;
     height: number;
   };
-  /** Position in the visual hierarchy. */
   position: "top" | "middle" | "bottom";
-  /** Visual patterns or characteristics of this section. */
   visualPatterns: string;
 }
 
-/**
- * Result of visual section extraction.
- */
 export interface VisualSectionsResult {
-  /** List of detected visual sections. */
   sections: VisualSection[];
-  /** Overall layout description. */
   layoutDescription: string;
-  /** Image dimensions used for analysis. */
   imageDimensions: {
     width: number;
     height: number;
@@ -57,50 +39,118 @@ export interface VisualSectionSlice {
   yEnd: number;
 }
 
-function getImageDimensions(imagePath: string): {
+export interface TrimResult {
+  outputPath: string;
+  originalDimensions: {
+    width: number;
+    height: number;
+  };
+  trimmedDimensions: {
+    width: number;
+    height: number;
+  };
+  trim: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
+  backgroundColor: {
+    r: number;
+    g: number;
+    b: number;
+  };
+}
+
+export interface SectionRange {
+  startY: number;
+  endY: number;
+}
+
+export interface VisualSectionMatch {
+  sectionId: string;
+  name: string;
+  description: string;
+  designRange: SectionRange;
+  matchedRange: SectionRange | null;
+  matchScore: number;
+  similarityScore: number;
+  signals: VisualSectionSignals;
+  humanDescription: string;
+  explanationConfidence: number | null;
+  explanationSource:
+    | "llm"
+    | "deterministic_fallback"
+    | "fallback_no_key"
+    | "fallback_error"
+    | "fallback_generic";
+  status: "matched" | "problematic" | "missing";
+}
+
+export interface VisualSectionSignals {
+  pixelDifference: number;
+  edgeDifference: number;
+  structuralSimilarity: number;
+  finalSimilarityScore: number;
+}
+
+interface RawImage {
+  data: Uint8Array;
   width: number;
   height: number;
-} {
-  const buffer = readFileSync(imagePath);
+  channels: number;
+}
 
-  // PNG signature.
-  if (
-    buffer[0] === 0x89 &&
-    buffer[1] === 0x50 &&
-    buffer[2] === 0x4e &&
-    buffer[3] === 0x47
-  ) {
-    const width = buffer.readUInt32BE(16);
-    const height = buffer.readUInt32BE(20);
-    return { width, height };
+interface MatchingFeatures {
+  width: number;
+  height: number;
+  grayscale: Float64Array;
+  edgeMap: Float64Array;
+}
+
+const MIN_SECTION_HEIGHT = 160;
+const MERGE_BOUNDARY_GAP = 120;
+const TARGET_SECTION_HEIGHT = 260;
+const MATCH_STEP = 32;
+const LOCAL_SEARCH_BAND = 300;
+const MISSING_MATCH_THRESHOLD = 0.2;
+const LOW_CONFIDENCE_MATCH_THRESHOLD = 0.55;
+const PROBLEMATIC_SECTION_THRESHOLD = 0.75;
+const MATCH_TIE_BAND = 0.02;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function movingAverage(values: number[], radius: number): number[] {
+  if (values.length === 0) return [];
+
+  const prefix = new Array<number>(values.length + 1).fill(0);
+  for (let i = 0; i < values.length; i++) {
+    prefix[i + 1] = prefix[i] + values[i];
   }
 
-  // JPEG: SOI marker FF D8.
-  if (buffer[0] === 0xff && buffer[1] === 0xd8) {
-    let offset = 2;
-    while (offset < buffer.length) {
-      if (buffer[offset] !== 0xff) {
-        break;
-      }
-      const marker = buffer[offset + 1];
-      if (
-        marker >= 0xc0 &&
-        marker <= 0xcf &&
-        marker !== 0xc4 &&
-        marker !== 0xc8 &&
-        marker !== 0xcc
-      ) {
-        const height = buffer.readUInt16BE(offset + 5);
-        const width = buffer.readUInt16BE(offset + 7);
-        return { width, height };
-      }
-      const length = buffer.readUInt16BE(offset + 2);
-      offset += 2 + length;
-    }
-  }
+  return values.map((_, index) => {
+    const start = Math.max(0, index - radius);
+    const end = Math.min(values.length - 1, index + radius);
+    const sum = prefix[end + 1] - prefix[start];
+    return sum / Math.max(1, end - start + 1);
+  });
+}
 
-  console.warn("Could not determine image dimensions, using defaults");
-  return { width: 1920, height: 1080 };
+function percentile(values: number[], ratio: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.round((sorted.length - 1) * clamp(ratio, 0, 1));
+  return sorted[index] ?? 0;
+}
+
+function normalizeSeries(values: number[]): number[] {
+  const max = values.reduce((best, value) => Math.max(best, value), 0);
+  if (max <= 0) {
+    return values.map(() => 0);
+  }
+  return values.map((value) => value / max);
 }
 
 function toKebabCase(value: string): string {
@@ -111,326 +161,765 @@ function toKebabCase(value: string): string {
     .trim();
 }
 
+async function loadRawImage(imagePath: string): Promise<RawImage> {
+  const { data, info } = await sharp(imagePath)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  return {
+    data,
+    width: info.width,
+    height: info.height,
+    channels: info.channels,
+  };
+}
+
+async function writeRawImage(image: RawImage, outputPath: string): Promise<void> {
+  await sharp(image.data, {
+    raw: {
+      width: image.width,
+      height: image.height,
+      channels: image.channels as 1 | 2 | 3 | 4,
+    },
+  })
+    .png()
+    .toFile(outputPath);
+}
+
+function getPixelOffset(image: RawImage, x: number, y: number): number {
+  return (y * image.width + x) * image.channels;
+}
+
+function estimateBackgroundColor(image: RawImage): { r: number; g: number; b: number } {
+  const sampleThickness = Math.max(
+    2,
+    Math.round(Math.min(image.width, image.height) * 0.03),
+  );
+
+  let rSum = 0;
+  let gSum = 0;
+  let bSum = 0;
+  let count = 0;
+
+  const visit = (x: number, y: number) => {
+    const offset = getPixelOffset(image, x, y);
+    rSum += image.data[offset] || 0;
+    gSum += image.data[offset + 1] || 0;
+    bSum += image.data[offset + 2] || 0;
+    count += 1;
+  };
+
+  const cornerRanges = [
+    { xStart: 0, xEnd: sampleThickness, yStart: 0, yEnd: sampleThickness },
+    {
+      xStart: Math.max(0, image.width - sampleThickness),
+      xEnd: image.width,
+      yStart: 0,
+      yEnd: sampleThickness,
+    },
+    {
+      xStart: 0,
+      xEnd: sampleThickness,
+      yStart: Math.max(0, image.height - sampleThickness),
+      yEnd: image.height,
+    },
+    {
+      xStart: Math.max(0, image.width - sampleThickness),
+      xEnd: image.width,
+      yStart: Math.max(0, image.height - sampleThickness),
+      yEnd: image.height,
+    },
+  ];
+
+  for (const range of cornerRanges) {
+    for (let y = range.yStart; y < range.yEnd; y++) {
+      for (let x = range.xStart; x < range.xEnd; x++) {
+        visit(x, y);
+      }
+    }
+  }
+
+  if (count === 0) {
+    return { r: 255, g: 255, b: 255 };
+  }
+
+  return {
+    r: Math.round(rSum / count),
+    g: Math.round(gSum / count),
+    b: Math.round(bSum / count),
+  };
+}
+
+function rowContentScore(
+  image: RawImage,
+  row: number,
+  background: { r: number; g: number; b: number },
+): { avgDistance: number; variance: number; foregroundRatio: number } {
+  let distanceSum = 0;
+  let lumSum = 0;
+  let lumSqSum = 0;
+  let foregroundCount = 0;
+
+  for (let x = 0; x < image.width; x++) {
+    const offset = getPixelOffset(image, x, row);
+    const r = image.data[offset] || 0;
+    const g = image.data[offset + 1] || 0;
+    const b = image.data[offset + 2] || 0;
+    const dr = r - background.r;
+    const dg = g - background.g;
+    const db = b - background.b;
+    const distance = Math.sqrt(dr * dr + dg * dg + db * db);
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    distanceSum += distance;
+    lumSum += luminance;
+    lumSqSum += luminance * luminance;
+    if (distance > 20) {
+      foregroundCount += 1;
+    }
+  }
+
+  const meanLum = lumSum / Math.max(1, image.width);
+  const variance = Math.max(0, lumSqSum / Math.max(1, image.width) - meanLum * meanLum);
+
+  return {
+    avgDistance: distanceSum / Math.max(1, image.width),
+    variance,
+    foregroundRatio: foregroundCount / Math.max(1, image.width),
+  };
+}
+
+function columnContentScore(
+  image: RawImage,
+  column: number,
+  background: { r: number; g: number; b: number },
+): { avgDistance: number; variance: number; foregroundRatio: number } {
+  let distanceSum = 0;
+  let lumSum = 0;
+  let lumSqSum = 0;
+  let foregroundCount = 0;
+
+  for (let y = 0; y < image.height; y++) {
+    const offset = getPixelOffset(image, column, y);
+    const r = image.data[offset] || 0;
+    const g = image.data[offset + 1] || 0;
+    const b = image.data[offset + 2] || 0;
+    const dr = r - background.r;
+    const dg = g - background.g;
+    const db = b - background.b;
+    const distance = Math.sqrt(dr * dr + dg * dg + db * db);
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    distanceSum += distance;
+    lumSum += luminance;
+    lumSqSum += luminance * luminance;
+    if (distance > 20) {
+      foregroundCount += 1;
+    }
+  }
+
+  const meanLum = lumSum / Math.max(1, image.height);
+  const variance = Math.max(0, lumSqSum / Math.max(1, image.height) - meanLum * meanLum);
+
+  return {
+    avgDistance: distanceSum / Math.max(1, image.height),
+    variance,
+    foregroundRatio: foregroundCount / Math.max(1, image.height),
+  };
+}
+
+function rowContainsContent(
+  image: RawImage,
+  row: number,
+  background: { r: number; g: number; b: number },
+): boolean {
+  const score = rowContentScore(image, row, background);
+  return (
+    score.avgDistance > 12 ||
+    score.variance > 28 ||
+    score.foregroundRatio > 0.015
+  );
+}
+
+function columnContainsContent(
+  image: RawImage,
+  column: number,
+  background: { r: number; g: number; b: number },
+): boolean {
+  const score = columnContentScore(image, column, background);
+  return (
+    score.avgDistance > 12 ||
+    score.variance > 28 ||
+    score.foregroundRatio > 0.015
+  );
+}
+
+function cropRawImage(
+  image: RawImage,
+  bounds: { left: number; top: number; width: number; height: number },
+): RawImage {
+  const left = clamp(Math.round(bounds.left), 0, image.width - 1);
+  const top = clamp(Math.round(bounds.top), 0, image.height - 1);
+  const width = clamp(Math.round(bounds.width), 1, image.width - left);
+  const height = clamp(Math.round(bounds.height), 1, image.height - top);
+  const data = new Uint8Array(width * height * image.channels);
+
+  for (let y = 0; y < height; y++) {
+    const sourceStart = ((top + y) * image.width + left) * image.channels;
+    const sourceEnd = sourceStart + width * image.channels;
+    const targetStart = y * width * image.channels;
+    data.set(image.data.subarray(sourceStart, sourceEnd), targetStart);
+  }
+
+  return {
+    data,
+    width,
+    height,
+    channels: image.channels,
+  };
+}
+
+function buildGrayscale(image: RawImage): Float64Array {
+  const output = new Float64Array(image.width * image.height);
+  for (let y = 0; y < image.height; y++) {
+    for (let x = 0; x < image.width; x++) {
+      const offset = getPixelOffset(image, x, y);
+      const r = image.data[offset] || 0;
+      const g = image.data[offset + 1] || 0;
+      const b = image.data[offset + 2] || 0;
+      output[y * image.width + x] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+  }
+  return output;
+}
+
+function buildEdgeMap(grayscale: Float64Array, width: number, height: number): Float64Array {
+  const edges = new Float64Array(width * height);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x;
+      const current = grayscale[index] || 0;
+      const right = grayscale[y * width + Math.min(width - 1, x + 1)] || 0;
+      const down = grayscale[Math.min(height - 1, y + 1) * width + x] || 0;
+      const left = grayscale[y * width + Math.max(0, x - 1)] || 0;
+      const up = grayscale[Math.max(0, y - 1) * width + x] || 0;
+      const gx = Math.abs(right - left);
+      const gy = Math.abs(down - up);
+      edges[index] = clamp((gx + gy) / 2, 0, 255);
+      if (current === 0 && right === 0 && down === 0 && left === 0 && up === 0) {
+        edges[index] = 0;
+      }
+    }
+  }
+
+  return edges;
+}
+
+function resizeChannelNearest(
+  channel: Float64Array,
+  width: number,
+  height: number,
+  targetWidth: number,
+  targetHeight: number,
+): Float64Array {
+  const output = new Float64Array(targetWidth * targetHeight);
+
+  for (let y = 0; y < targetHeight; y++) {
+    const sourceY = Math.min(height - 1, Math.floor((y / targetHeight) * height));
+    for (let x = 0; x < targetWidth; x++) {
+      const sourceX = Math.min(width - 1, Math.floor((x / targetWidth) * width));
+      output[y * targetWidth + x] = channel[sourceY * width + sourceX] || 0;
+    }
+  }
+
+  return output;
+}
+
+function prepareMatchingFeatures(image: RawImage, targetWidth = 320): MatchingFeatures {
+  const grayscale = buildGrayscale(image);
+  const edgeMap = buildEdgeMap(grayscale, image.width, image.height);
+
+  if (image.width <= targetWidth) {
+    return {
+      width: image.width,
+      height: image.height,
+      grayscale,
+      edgeMap,
+    };
+  }
+
+  const targetHeight = Math.max(1, Math.round((image.height / image.width) * targetWidth));
+
+  return {
+    width: targetWidth,
+    height: targetHeight,
+    grayscale: resizeChannelNearest(
+      grayscale,
+      image.width,
+      image.height,
+      targetWidth,
+      targetHeight,
+    ),
+    edgeMap: resizeChannelNearest(
+      edgeMap,
+      image.width,
+      image.height,
+      targetWidth,
+      targetHeight,
+    ),
+  };
+}
+
+function cropFullWidthChannel(
+  channel: Float64Array,
+  width: number,
+  startY: number,
+  endY: number,
+): Float64Array {
+  const safeStart = Math.max(0, Math.round(startY));
+  const safeEnd = Math.max(safeStart + 1, Math.round(endY));
+  return channel.slice(safeStart * width, safeEnd * width);
+}
+
+function meanAbsoluteDifference(a: Float64Array, b: Float64Array): number {
+  const length = Math.min(a.length, b.length);
+  if (length === 0) return 255;
+
+  let sum = 0;
+  for (let i = 0; i < length; i++) {
+    sum += Math.abs((a[i] || 0) - (b[i] || 0));
+  }
+
+  return sum / length;
+}
+
+function computeSsim(a: Float64Array, b: Float64Array): number {
+  const length = Math.min(a.length, b.length);
+  if (length === 0) return 0;
+
+  let meanA = 0;
+  let meanB = 0;
+  for (let i = 0; i < length; i++) {
+    meanA += a[i] || 0;
+    meanB += b[i] || 0;
+  }
+  meanA /= length;
+  meanB /= length;
+
+  let varianceA = 0;
+  let varianceB = 0;
+  let covariance = 0;
+
+  for (let i = 0; i < length; i++) {
+    const da = (a[i] || 0) - meanA;
+    const db = (b[i] || 0) - meanB;
+    varianceA += da * da;
+    varianceB += db * db;
+    covariance += da * db;
+  }
+
+  varianceA /= length;
+  varianceB /= length;
+  covariance /= length;
+
+  const c1 = (0.01 * 255) ** 2;
+  const c2 = (0.03 * 255) ** 2;
+
+  const numerator = (2 * meanA * meanB + c1) * (2 * covariance + c2);
+  const denominator =
+    (meanA * meanA + meanB * meanB + c1) * (varianceA + varianceB + c2);
+
+  if (denominator <= 0) {
+    return 0;
+  }
+
+  return clamp(numerator / denominator, 0, 1);
+}
+
+function computeVisualSignals(
+  designGray: Float64Array,
+  candidateGray: Float64Array,
+  designEdge: Float64Array,
+  candidateEdge: Float64Array,
+): VisualSectionSignals {
+  const pixelDifference = clamp(
+    meanAbsoluteDifference(designGray, candidateGray) / 255,
+    0,
+    1,
+  );
+  const edgeDifference = clamp(
+    meanAbsoluteDifference(designEdge, candidateEdge) / 255,
+    0,
+    1,
+  );
+  const structuralSimilarity = computeSsim(designGray, candidateGray);
+  const finalSimilarityScore = clamp(
+    structuralSimilarity * 0.45 +
+      (1 - pixelDifference) * 0.3 +
+      (1 - edgeDifference) * 0.25,
+    0,
+    1,
+  );
+
+  return {
+    pixelDifference,
+    edgeDifference,
+    structuralSimilarity,
+    finalSimilarityScore,
+  };
+}
+
+function computeSimilarity(
+  designGray: Float64Array,
+  candidateGray: Float64Array,
+  designEdge: Float64Array,
+  candidateEdge: Float64Array,
+): number {
+  return computeVisualSignals(
+    designGray,
+    candidateGray,
+    designEdge,
+    candidateEdge,
+  ).finalSimilarityScore;
+}
+
+function describeSectionDifference(
+  status: VisualSectionMatch["status"],
+  signals: VisualSectionSignals,
+  matchScore: number,
+): string {
+  if (status === "missing") {
+    return "No corresponding webpage region was confidently matched for this section.";
+  }
+
+  const notes: string[] = [];
+
+  if (signals.structuralSimilarity < 0.55) {
+    notes.push("the overall layout structure differs");
+  }
+
+  if (signals.pixelDifference > 0.24) {
+    notes.push("colors, fills, or spacing differ visibly");
+  }
+
+  if (signals.edgeDifference > 0.28) {
+    notes.push("text, icon, or border contours do not line up");
+  }
+
+  if (matchScore < LOW_CONFIDENCE_MATCH_THRESHOLD) {
+    notes.push("the best matched webpage region was found with low confidence");
+  }
+
+  if (status === "matched") {
+    if (notes.length === 0) {
+      return "This section is visually close to the design with no material differences detected.";
+    }
+
+    return `This section is visually close overall, but ${notes.join(" and ")}.`;
+  }
+
+  if (notes.length === 0) {
+    return "A corresponding webpage region was found, but the section differs materially from the design.";
+  }
+
+  return `A corresponding webpage region was found, but ${notes.join(" and ")}.`;
+}
+
 function normalizeSlices(
   slices: VisualSectionSlice[],
   imageHeight: number,
 ): VisualSectionSlice[] {
   const normalized: VisualSectionSlice[] = [];
-  let prevEnd = 0;
+  let previousEnd = 0;
 
-  for (let i = 0; i < slices.length; i++) {
-    const slice = slices[i];
-    let yStart = Math.max(0, Math.round(slice.yStart));
-    let yEnd = Math.min(imageHeight, Math.round(slice.yEnd));
+  for (let index = 0; index < slices.length; index++) {
+    const slice = slices[index];
+    let yStart = index === 0 ? 0 : previousEnd;
+    let yEnd =
+      index === slices.length - 1
+        ? imageHeight
+        : clamp(Math.round(slice.yEnd), yStart + 1, imageHeight);
 
-    yStart = i === 0 ? 0 : prevEnd;
-    if (i === slices.length - 1) {
-      yEnd = imageHeight;
-    } else {
-      yEnd = Math.max(yEnd, yStart + 1);
-    }
-
-    if (yEnd < yStart) {
+    if (yEnd <= yStart) {
       yEnd = Math.min(imageHeight, yStart + 1);
     }
 
-    normalized.push({ ...slice, yStart, yEnd });
-    prevEnd = yEnd;
+    normalized.push({
+      ...slice,
+      yStart,
+      yEnd,
+    });
+    previousEnd = yEnd;
   }
 
   return normalized;
 }
 
+function positionForSection(midpoint: number, imageHeight: number): "top" | "middle" | "bottom" {
+  const ratio = midpoint / Math.max(1, imageHeight);
+  if (ratio < 0.33) return "top";
+  if (ratio < 0.66) return "middle";
+  return "bottom";
+}
+
 function slicesToSections(
   slices: VisualSectionSlice[],
   imageWidth: number,
-  baseSections: VisualSection[],
+  imageHeight: number,
 ): VisualSection[] {
-  const baseById = new Map(baseSections.map((s) => [s.sectionId, s]));
-  return slices.map((slice) => {
-    const base = baseById.get(slice.sectionId);
+  return slices.map((slice, index) => {
+    const midpoint = slice.yStart + (slice.yEnd - slice.yStart) / 2;
+    const position = positionForSection(midpoint, imageHeight);
+    const height = Math.max(1, slice.yEnd - slice.yStart);
+
     return {
-      name: base?.name || slice.name,
+      name: slice.name,
       sectionId: slice.sectionId,
-      description: base?.description || "",
+      description: `Detected full-width section spanning rows ${slice.yStart}-${slice.yEnd}.`,
       boundingBox: {
         x: 0,
         y: slice.yStart,
         width: imageWidth,
-        height: Math.max(1, slice.yEnd - slice.yStart),
+        height,
       },
-      position: base?.position || "middle",
-      visualPatterns: base?.visualPatterns || "full-width slice",
+      position,
+      visualPatterns:
+        index === 0
+          ? "top-of-page layout chunk"
+          : index === slices.length - 1
+            ? "bottom-of-page layout chunk"
+            : "mid-page layout chunk",
     };
   });
 }
 
-/** Section extraction via OpenAI vision API only. No Stagehand, no fallback. */
-async function extractSectionsViaVisionAPI(
-  screenshotPath: string,
-): Promise<VisualSectionsResult | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.warn(
-      "OPENAI_API_KEY not set; cannot extract sections via vision API.",
-    );
-    return null;
-  }
+function buildRowSignal(
+  image: RawImage,
+  background: { r: number; g: number; b: number },
+): number[] {
+  const grayscale = buildGrayscale(image);
+  const edgeMap = buildEdgeMap(grayscale, image.width, image.height);
+  const edgeDensity = new Array<number>(image.height).fill(0);
+  const colorChange = new Array<number>(image.height).fill(0);
+  const whitespace = new Array<number>(image.height).fill(0);
 
-  const thumbWidth = 1200;
-  const thumbBuf = await sharp(screenshotPath)
-    .resize({ width: thumbWidth, withoutEnlargement: true })
-    .png()
-    .toBuffer();
-  const thumbMeta = await sharp(thumbBuf).metadata();
-  const thumbW = thumbMeta.width || thumbWidth;
-  const thumbH =
-    thumbMeta.height ||
-    Math.max(
-      1,
-      Math.round(
-        (thumbWidth * (await sharp(screenshotPath).metadata()).height!) /
-          Math.max(1, (await sharp(screenshotPath).metadata()).width!),
-      ),
-    );
-  const thumbBase64 = thumbBuf.toString("base64");
+  const rowMeanGray = new Array<number>(image.height).fill(0);
 
-  const imageMeta = await sharp(screenshotPath).metadata();
-  const origW = imageMeta.width || thumbW;
-  const origH = imageMeta.height || thumbH;
+  for (let y = 0; y < image.height; y++) {
+    const content = rowContentScore(image, y, background);
+    whitespace[y] = 1 - clamp(content.foregroundRatio, 0, 1);
 
-  const model =
-    process.env.OPENAI_SECTION_MODEL ||
-    process.env.SECTION_EXTRACTION_MODEL ||
-    "gpt-4o-mini";
-
-  const systemPrompt =
-    "You are an expert visual analyst. You will be given a page thumbnail and must return valid JSON only describing logical page sections in order. For each section return sectionId (kebab-case), name, description, and a bbox in the thumbnail coordinate space: {x,y,width,height}. Do not produce any other text. Respond with JSON only.";
-
-  const userText = `Identify complete, standalone website sections in this page thumbnail in top-to-bottom order. For each section return: sectionId (kebab-case), name, description (1 sentence), and bbox (x,y,width,height) in pixels relative to the thumbnail. Thumbnail dimensions: width=${thumbW}, height=${thumbH}. Avoid tiny decorative crops.
-
-Include distinct sections such as: header/navigation, client logos, social proof, logo clouds, teasers, hero, how-it-works, testimonials (or quotes/reviews), pricing/packages, portfolio/gallery, services, FAQ, call-to-action, footer. These are just examples you should be able to judge and detect sections not highlighted here.
-
-Make sure sections end on a whitespace or at least they do not cut content in the middle of a section.
-
-Return valid JSON only with this exact structure:
-{
-  "sections": [
-    { "sectionId": "hero", "name": "Hero", "description": "Main headline and CTA", "bbox": { "x": 0, "y": 0, "width": 1200, "height": 400 } }
-  ],
-  "layoutDescription": "Optional short layout summary"
-}`;
-
-  const openai = new OpenAI({ apiKey });
-  const completion = await openai.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: userText },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:image/png;base64,${thumbBase64}`,
-            },
-          },
-        ],
-      },
-    ],
-    max_tokens: 4096,
-  });
-
-  const content = completion.choices[0]?.message?.content;
-  if (!content) return null;
-
-  const jsonString = extractJsonFromResponse(content);
-  if (!jsonString) return null;
-
-  try {
-    const parsed = JSON.parse(jsonString) as {
-      sections?: Array<{
-        sectionId?: string;
-        name?: string;
-        description?: string;
-        bbox?: { x: number; y: number; width: number; height: number };
-      }>;
-      layoutDescription?: string;
-    };
-    if (!parsed.sections || !Array.isArray(parsed.sections)) return null;
-
-    const sections: VisualSection[] = [];
-    for (const s of parsed.sections) {
-      if (!s.bbox) continue;
-      const sectionId =
-        s.sectionId || toKebabCase(s.name || `section-${sections.length + 1}`);
-      const bx = Math.max(0, Math.round((s.bbox.x / thumbW) * origW));
-      const by = Math.max(0, Math.round((s.bbox.y / thumbH) * origH));
-      const bw = Math.max(1, Math.round((s.bbox.width / thumbW) * origW));
-      const bh = Math.max(1, Math.round((s.bbox.height / thumbH) * origH));
-
-      sections.push({
-        name: s.name || sectionId,
-        sectionId,
-        description: s.description || "",
-        boundingBox: { x: bx, y: by, width: bw, height: bh },
-        position: "middle",
-        visualPatterns: "",
-      });
+    let graySum = 0;
+    let edgeSum = 0;
+    for (let x = 0; x < image.width; x++) {
+      graySum += grayscale[y * image.width + x] || 0;
+      edgeSum += edgeMap[y * image.width + x] || 0;
     }
 
-    for (const s of sections) {
-      const mid = s.boundingBox.y + s.boundingBox.height / 2;
-      const frac = mid / Math.max(1, origH);
-      s.position = frac < 0.33 ? "top" : frac < 0.66 ? "middle" : "bottom";
-    }
-
-    return {
-      sections,
-      layoutDescription:
-        parsed.layoutDescription || "Sections from vision API.",
-      imageDimensions: { width: origW, height: origH },
-    };
-  } catch {
-    return null;
+    rowMeanGray[y] = graySum / Math.max(1, image.width);
+    edgeDensity[y] = edgeSum / Math.max(1, image.width * 255);
   }
+
+  for (let y = 1; y < image.height; y++) {
+    colorChange[y] = Math.abs(rowMeanGray[y] - rowMeanGray[y - 1]) / 255;
+  }
+
+  const normalizedEdge = normalizeSeries(edgeDensity);
+  const normalizedChange = normalizeSeries(colorChange);
+  const normalizedWhitespace = normalizeSeries(whitespace);
+
+  const signal = new Array<number>(image.height).fill(0);
+  for (let y = 0; y < image.height; y++) {
+    signal[y] =
+      normalizedWhitespace[y] * 0.45 +
+      normalizedChange[y] * 0.35 +
+      (1 - normalizedEdge[y]) * 0.2;
+  }
+
+  return movingAverage(signal, 6);
 }
 
-async function refineSectionSlicesViaVisionAPI(
-  screenshotPath: string,
-  sections: VisualSection[],
-): Promise<{
-  slices: VisualSectionSlice[];
-  imageDimensions: { width: number; height: number };
-  layoutDescription: string;
-} | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.warn(
-      "OPENAI_API_KEY not set; cannot refine section slices via vision API.",
-    );
-    return null;
-  }
+function findBoundaryCandidates(
+  signal: number[],
+  imageHeight: number,
+  minSectionHeight: number,
+  mergeGap: number,
+): number[] {
+  if (signal.length === 0) return [];
 
-  const thumbWidth = Number(process.env.OPENAI_SLICE_THUMB_WIDTH || 1600);
-  const thumbBuf = await sharp(screenshotPath)
-    .resize({ width: thumbWidth, withoutEnlargement: true })
-    .png()
-    .toBuffer();
-  const thumbMeta = await sharp(thumbBuf).metadata();
-  const thumbW = thumbMeta.width || thumbWidth;
-  const thumbH =
-    thumbMeta.height ||
-    Math.max(
-      1,
-      Math.round(
-        (thumbWidth * (await sharp(screenshotPath).metadata()).height!) /
-          Math.max(1, (await sharp(screenshotPath).metadata()).width!),
-      ),
-    );
-  const thumbBase64 = thumbBuf.toString("base64");
+  const mean = signal.reduce((sum, value) => sum + value, 0) / signal.length;
+  const variance =
+    signal.reduce((sum, value) => sum + (value - mean) * (value - mean), 0) /
+    signal.length;
+  const stdDev = Math.sqrt(variance);
+  const threshold = Math.max(mean + stdDev * 0.35, percentile(signal, 0.72));
+  const localWindow = Math.max(2, Math.round(mergeGap / 4));
+  const minY = minSectionHeight;
+  const maxY = imageHeight - minSectionHeight;
 
-  const imageMeta = await sharp(screenshotPath).metadata();
-  const origW = imageMeta.width || thumbW;
-  const origH = imageMeta.height || thumbH;
+  const peaks: Array<{ y: number; score: number }> = [];
 
-  const model =
-    process.env.OPENAI_SECTION_SLICE_MODEL ||
-    process.env.OPENAI_SECTION_MODEL ||
-    process.env.SECTION_EXTRACTION_MODEL ||
-    "gpt-4o";
+  for (let y = minY; y <= maxY; y++) {
+    const score = signal[y] || 0;
+    if (score < threshold) continue;
 
-  const systemPrompt =
-    "You are an expert visual analyst. You will be given a page screenshot thumbnail and a list of detected sections (in order). Return JSON only with clean horizontal slice boundaries for each section. Do not reorder or rename sections. No extra text.";
-
-  const sectionsList = sections
-    .map((s, i) => `${i + 1}. ${s.name} (id: ${s.sectionId})`)
-    .join("\n");
-
-  const userText = `You are given the full page thumbnail and a list of sections in order. Your task: determine the exact horizontal cut lines so each section becomes a full-width slice. Return yStart/yEnd for each section in thumbnail pixel coordinates.
-
-Constraints:
-- Preserve section order and IDs exactly.
-- Full-width slices only (x=0..width). Only return yStart/yEnd.
-- No overlaps. Slices must be contiguous.
-- First slice yStart must be 0. Last slice yEnd must be ${thumbH}.
-- Each slice must have yEnd > yStart.
-- Cut lines must fall between sections in visual whitespace.
-- Never cut through headings, buttons, or images. If a boundary intersects content, move it to the nearest blank gap.
-- If unsure, bias toward including the full heading of the upper section.
-
-Thumbnail dimensions: width=${thumbW}, height=${thumbH}.
-
-Sections (in order):
-${sectionsList}
-
-Return valid JSON only in this structure:
-{
-  "slices": [
-    { "sectionId": "hero", "name": "Hero", "yStart": 0, "yEnd": 420 }
-  ],
-  "layoutDescription": "Short optional summary"
-}`;
-
-  const openai = new OpenAI({ apiKey });
-  const completion = await openai.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: userText },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:image/png;base64,${thumbBase64}`,
-            },
-          },
-        ],
-      },
-    ],
-    max_tokens: 2048,
-  });
-
-  const content = completion.choices[0]?.message?.content;
-  if (!content) return null;
-
-  const jsonString = extractJsonFromResponse(content);
-  if (!jsonString) return null;
-
-  try {
-    const parsed = JSON.parse(jsonString) as {
-      slices?: Array<{
-        sectionId?: string;
-        name?: string;
-        yStart?: number;
-        yEnd?: number;
-      }>;
-      layoutDescription?: string;
-    };
-    if (!parsed.slices || !Array.isArray(parsed.slices)) return null;
-
-    const slices: VisualSectionSlice[] = [];
-    for (const s of parsed.slices) {
-      if (s.yStart == null || s.yEnd == null) continue;
-      const sectionId = s.sectionId || "";
-      const name = s.name || sectionId;
-      const yStart = Math.max(0, Math.round((s.yStart / thumbH) * origH));
-      const yEnd = Math.max(1, Math.round((s.yEnd / thumbH) * origH));
-      slices.push({ sectionId, name, yStart, yEnd });
+    let isPeak = true;
+    for (let offset = -localWindow; offset <= localWindow; offset++) {
+      if (offset === 0) continue;
+      const compareIndex = clamp(y + offset, 0, signal.length - 1);
+      if ((signal[compareIndex] || 0) > score) {
+        isPeak = false;
+        break;
+      }
     }
 
-    return {
-      slices,
-      imageDimensions: { width: origW, height: origH },
-      layoutDescription:
-        parsed.layoutDescription || "Slices refined via vision API.",
-    };
-  } catch {
-    return null;
+    if (isPeak) {
+      peaks.push({ y, score });
+    }
   }
+
+  peaks.sort((a, b) => a.y - b.y);
+
+  const merged: Array<{ y: number; score: number }> = [];
+  for (const peak of peaks) {
+    const previous = merged[merged.length - 1];
+    if (previous && peak.y - previous.y < mergeGap) {
+      if (peak.score > previous.score) {
+        previous.y = peak.y;
+        previous.score = peak.score;
+      }
+    } else {
+      merged.push({ ...peak });
+    }
+  }
+
+  return merged.map((peak) => peak.y);
+}
+
+function slicesFromBoundaries(
+  boundaries: number[],
+  imageHeight: number,
+  minSectionHeight: number,
+): VisualSectionSlice[] {
+  const slices: VisualSectionSlice[] = [];
+  let start = 0;
+
+  for (const boundary of boundaries) {
+    const end = clamp(Math.round(boundary), start + 1, imageHeight);
+    slices.push({
+      sectionId: "",
+      name: "",
+      yStart: start,
+      yEnd: end,
+    });
+    start = end;
+  }
+
+  slices.push({
+    sectionId: "",
+    name: "",
+    yStart: start,
+    yEnd: imageHeight,
+  });
+
+  const merged: VisualSectionSlice[] = [];
+  for (const slice of slices) {
+    const previous = merged[merged.length - 1];
+    const height = slice.yEnd - slice.yStart;
+
+    if (previous && height < minSectionHeight) {
+      previous.yEnd = slice.yEnd;
+      continue;
+    }
+
+    merged.push({ ...slice });
+  }
+
+  while (merged.length > 1) {
+    const tinyIndex = merged.findIndex(
+      (slice) => slice.yEnd - slice.yStart < minSectionHeight,
+    );
+    if (tinyIndex === -1) {
+      break;
+    }
+
+    if (tinyIndex === 0) {
+      merged[1].yStart = 0;
+      merged.shift();
+    } else {
+      merged[tinyIndex - 1].yEnd = merged[tinyIndex].yEnd;
+      merged.splice(tinyIndex, 1);
+    }
+  }
+
+  return merged.map((slice, index) => ({
+    sectionId: `section-${String(index + 1).padStart(2, "0")}`,
+    name: `Section ${index + 1}`,
+    yStart: slice.yStart,
+    yEnd: slice.yEnd,
+  }));
+}
+
+function estimateMaxSectionCount(imageHeight: number): number {
+  return clamp(Math.round(imageHeight / TARGET_SECTION_HEIGHT), 2, 12);
+}
+
+function mergeSlicesToTargetCount(
+  slices: VisualSectionSlice[],
+  maxCount: number,
+): VisualSectionSlice[] {
+  if (slices.length <= maxCount) {
+    return slices;
+  }
+
+  const working = slices.map((slice) => ({ ...slice }));
+
+  while (working.length > maxCount) {
+    let smallestIndex = 0;
+    let smallestHeight = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < working.length; index++) {
+      const height = working[index].yEnd - working[index].yStart;
+      if (height < smallestHeight) {
+        smallestHeight = height;
+        smallestIndex = index;
+      }
+    }
+
+    if (smallestIndex === 0) {
+      working[1].yStart = working[0].yStart;
+      working.splice(0, 1);
+      continue;
+    }
+
+    if (smallestIndex === working.length - 1) {
+      working[working.length - 2].yEnd = working[working.length - 1].yEnd;
+      working.splice(working.length - 1, 1);
+      continue;
+    }
+
+    const previousHeight =
+      working[smallestIndex - 1].yEnd - working[smallestIndex - 1].yStart;
+    const nextHeight =
+      working[smallestIndex + 1].yEnd - working[smallestIndex + 1].yStart;
+
+    if (previousHeight <= nextHeight) {
+      working[smallestIndex - 1].yEnd = working[smallestIndex].yEnd;
+      working.splice(smallestIndex, 1);
+    } else {
+      working[smallestIndex + 1].yStart = working[smallestIndex].yStart;
+      working.splice(smallestIndex, 1);
+    }
+  }
+
+  return working.map((slice, index) => ({
+    sectionId: `section-${String(index + 1).padStart(2, "0")}`,
+    name: `Section ${index + 1}`,
+    yStart: slice.yStart,
+    yEnd: slice.yEnd,
+  }));
 }
 
 async function computeRowVarianceMap(
@@ -438,56 +927,44 @@ async function computeRowVarianceMap(
   targetWidth = 600,
 ): Promise<{
   rowScores: number[];
-  scaledHeight: number;
   scaleY: number;
-  origHeight: number;
   stats: { p25: number; median: number; p75: number };
 }> {
-  const imageMeta = await sharp(imagePath).metadata();
-  const origHeight = imageMeta.height || 1080;
+  const metadata = await sharp(imagePath).metadata();
+  const originalHeight = metadata.height || 1080;
 
   const { data, info } = await sharp(imagePath)
     .resize({ width: targetWidth, withoutEnlargement: true })
+    .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
 
-  const { width, height, channels } = info;
-  const rowScores = new Array<number>(height).fill(0);
-
-  for (let y = 0; y < height; y++) {
+  const rowScores = new Array<number>(info.height).fill(0);
+  for (let y = 0; y < info.height; y++) {
     let sum = 0;
-    let sumSq = 0;
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * channels;
-      const r = data[idx] || 0;
-      const g = data[idx + 1] || 0;
-      const b = data[idx + 2] || 0;
-      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      sum += lum;
-      sumSq += lum * lum;
+    let sumSquares = 0;
+    for (let x = 0; x < info.width; x++) {
+      const index = (y * info.width + x) * info.channels;
+      const r = data[index] || 0;
+      const g = data[index + 1] || 0;
+      const b = data[index + 2] || 0;
+      const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      sum += luminance;
+      sumSquares += luminance * luminance;
     }
-    const mean = sum / width;
-    const variance = Math.max(0, sumSq / width - mean * mean);
-    rowScores[y] = variance;
+    const mean = sum / Math.max(1, info.width);
+    rowScores[y] = Math.max(0, sumSquares / Math.max(1, info.width) - mean * mean);
   }
 
-  const smoothed = rowScores.map((value, i) => {
-    const prev = rowScores[i - 1] ?? value;
-    const next = rowScores[i + 1] ?? value;
-    return (prev + value + next) / 3;
-  });
-
-  const sorted = [...smoothed].sort((a, b) => a - b);
-  const q = (p: number) =>
-    sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * p)))] ??
-    0;
-
+  const smoothed = movingAverage(rowScores, 1);
   return {
     rowScores: smoothed,
-    scaledHeight: height,
-    scaleY: origHeight / Math.max(1, height),
-    origHeight,
-    stats: { p25: q(0.25), median: q(0.5), p75: q(0.75) },
+    scaleY: originalHeight / Math.max(1, info.height),
+    stats: {
+      p25: percentile(smoothed, 0.25),
+      median: percentile(smoothed, 0.5),
+      p75: percentile(smoothed, 0.75),
+    },
   };
 }
 
@@ -500,56 +977,51 @@ function snapBoundaryToWhitespace(
   windowPx = 12,
   minImprovementRatio = 0.12,
 ): number {
-  const scaledY = Math.max(
-    0,
-    Math.min(rowScores.length - 1, Math.round(y / scaleY)),
-  );
-  const radius = Math.max(
-    1,
-    Math.round(searchRadiusPx / Math.max(0.01, scaleY)),
-  );
+  const scaledY = clamp(Math.round(y / Math.max(scaleY, 0.01)), 0, rowScores.length - 1);
+  const radius = Math.max(1, Math.round(searchRadiusPx / Math.max(scaleY, 0.01)));
   const start = Math.max(0, scaledY - radius);
   const end = Math.min(rowScores.length - 1, scaledY + radius);
 
-  const prefix = new Array<number>(rowScores.length + 1);
-  prefix[0] = 0;
-  for (let i = 0; i < rowScores.length; i++) {
-    prefix[i + 1] = prefix[i] + rowScores[i];
+  const prefix = new Array<number>(rowScores.length + 1).fill(0);
+  for (let index = 0; index < rowScores.length; index++) {
+    prefix[index + 1] = prefix[index] + rowScores[index];
   }
-  const windowRadius = Math.max(0, Math.round(windowPx / 2 / Math.max(0.01, scaleY)));
-  const windowAvg = (idx: number) => {
-    const wStart = Math.max(0, idx - windowRadius);
-    const wEnd = Math.min(rowScores.length - 1, idx + windowRadius);
-    const sum = prefix[wEnd + 1] - prefix[wStart];
-    return sum / Math.max(1, wEnd - wStart + 1);
+
+  const windowRadius = Math.max(
+    0,
+    Math.round(windowPx / 2 / Math.max(scaleY, 0.01)),
+  );
+
+  const windowAverage = (index: number) => {
+    const windowStart = Math.max(0, index - windowRadius);
+    const windowEnd = Math.min(rowScores.length - 1, index + windowRadius);
+    const sum = prefix[windowEnd + 1] - prefix[windowStart];
+    return sum / Math.max(1, windowEnd - windowStart + 1);
   };
 
-  let bestIdx = scaledY;
-  let bestScore = windowAvg(scaledY);
+  let bestIndex = scaledY;
+  let bestScore = windowAverage(scaledY);
 
-  for (let i = start; i <= end; i++) {
-    const score = windowAvg(i);
+  for (let index = start; index <= end; index++) {
+    const score = windowAverage(index);
     if (score < bestScore) {
       bestScore = score;
-      bestIdx = i;
+      bestIndex = index;
     }
   }
 
-  const originalScore = windowAvg(scaledY);
+  const originalScore = windowAverage(scaledY);
   const improvement =
     originalScore > 0 ? (originalScore - bestScore) / originalScore : 0;
 
   const shouldSnap =
-    bestIdx !== scaledY &&
+    bestIndex !== scaledY &&
     (improvement >= minImprovementRatio ||
       originalScore >= stats.p75 ||
-      bestScore <= stats.p25);
+      bestScore <= stats.p25 ||
+      originalScore >= stats.median * 1.25);
 
-  if (shouldSnap) {
-    return Math.round(bestIdx * scaleY);
-  }
-
-  return y;
+  return shouldSnap ? Math.round(bestIndex * scaleY) : y;
 }
 
 export async function snapSliceBoundariesToWhitespace(
@@ -559,81 +1031,140 @@ export async function snapSliceBoundariesToWhitespace(
 ): Promise<VisualSectionSlice[]> {
   if (slices.length === 0) return slices;
 
-  const debug = process.env.BRUNI_DEBUG_SECTION_SLICES === "1";
   const { rowScores, scaleY, stats } = await computeRowVarianceMap(imagePath);
-  const searchRadiusPx = Number(
-    process.env.BRUNI_SLICE_SNAP_RADIUS_PX || 48,
-  );
-  const windowPx = Number(process.env.BRUNI_SLICE_SNAP_WINDOW_PX || 12);
-  const minImprovementRatio = Number(
+  const searchRadius = Number(process.env.BRUNI_SLICE_SNAP_RADIUS_PX || 48);
+  const windowSize = Number(process.env.BRUNI_SLICE_SNAP_WINDOW_PX || 12);
+  const minImprovement = Number(
     process.env.BRUNI_SLICE_SNAP_MIN_IMPROVEMENT || 0.12,
   );
 
   const adjusted: VisualSectionSlice[] = [];
-  for (let i = 0; i < slices.length; i++) {
-    const slice = slices[i];
-    let yStart = slice.yStart;
+
+  for (let index = 0; index < slices.length; index++) {
+    const slice = slices[index];
     let yEnd = slice.yEnd;
 
-    if (i < slices.length - 1) {
-      const snapped = snapBoundaryToWhitespace(
-        yEnd,
+    if (index < slices.length - 1) {
+      yEnd = snapBoundaryToWhitespace(
+        slice.yEnd,
         rowScores,
         scaleY,
         stats,
-        searchRadiusPx,
-        windowPx,
-        minImprovementRatio,
+        searchRadius,
+        windowSize,
+        minImprovement,
       );
-      if (debug && snapped !== yEnd) {
-        console.log(
-          `Slice ${slice.sectionId}: yEnd ${yEnd} -> ${snapped} (snap)`,
-        );
-      }
-      yEnd = snapped;
     } else {
       yEnd = imageHeight;
     }
 
-    if (yEnd <= yStart) {
-      yEnd = Math.min(imageHeight, yStart + 1);
-    }
-
-    adjusted.push({ ...slice, yStart, yEnd });
+    adjusted.push({
+      ...slice,
+      yEnd: Math.max(slice.yStart + 1, Math.min(imageHeight, yEnd)),
+    });
   }
 
   return adjusted;
 }
 
+export async function trimImageToContent(
+  inputPath: string,
+  outputPath: string,
+): Promise<TrimResult> {
+  const image = await loadRawImage(inputPath);
+  const background = estimateBackgroundColor(image);
+
+  let top = 0;
+  while (top < image.height - 1 && !rowContainsContent(image, top, background)) {
+    top += 1;
+  }
+
+  let bottom = image.height - 1;
+  while (bottom > top && !rowContainsContent(image, bottom, background)) {
+    bottom -= 1;
+  }
+
+  let left = 0;
+  while (left < image.width - 1 && !columnContainsContent(image, left, background)) {
+    left += 1;
+  }
+
+  let right = image.width - 1;
+  while (right > left && !columnContainsContent(image, right, background)) {
+    right -= 1;
+  }
+
+  const width = Math.max(1, right - left + 1);
+  const height = Math.max(1, bottom - top + 1);
+  const trimmed = cropRawImage(image, {
+    left,
+    top,
+    width,
+    height,
+  });
+
+  await writeRawImage(trimmed, outputPath);
+
+  return {
+    outputPath,
+    originalDimensions: {
+      width: image.width,
+      height: image.height,
+    },
+    trimmedDimensions: {
+      width: trimmed.width,
+      height: trimmed.height,
+    },
+    trim: {
+      left,
+      top,
+      right: image.width - right - 1,
+      bottom: image.height - bottom - 1,
+    },
+    backgroundColor: background,
+  };
+}
+
 export async function extractVisualSections(
   screenshotPath: string,
 ): Promise<VisualSectionsResult> {
-  console.log(
-    `\n${"=".repeat(50)}\n🔍 Extracting visual sections from screenshot\n${"=".repeat(50)}`,
+  const image = await loadRawImage(screenshotPath);
+  const background = estimateBackgroundColor(image);
+  const signal = buildRowSignal(image, background);
+  const boundaries = findBoundaryCandidates(
+    signal,
+    image.height,
+    MIN_SECTION_HEIGHT,
+    MERGE_BOUNDARY_GAP,
   );
 
-  const imageDimensions = getImageDimensions(screenshotPath);
-  console.log(
-    `Image dimensions: ${imageDimensions.width}x${imageDimensions.height}`,
+  const preliminarySlices = slicesFromBoundaries(
+    boundaries,
+    image.height,
+    MIN_SECTION_HEIGHT,
+  );
+  const compactedSlices = mergeSlicesToTargetCount(
+    preliminarySlices,
+    estimateMaxSectionCount(image.height),
   );
 
-  const result = await extractSectionsViaVisionAPI(screenshotPath);
-  if (!result || !result.sections || result.sections.length === 0) {
-    throw new Error(
-      "Section extraction returned no sections. Ensure OPENAI_API_KEY is set and the vision API returned valid JSON.",
-    );
-  }
+  const snappedSlices = await snapSliceBoundariesToWhitespace(
+    screenshotPath,
+    compactedSlices,
+    image.height,
+  );
 
-  console.log(`Using vision API sections: ${result.sections.length}`);
-  for (const section of result.sections) {
-    console.log(
-      `  - ${section.name} (${section.sectionId}): ${section.boundingBox.y}px - ${
-        section.boundingBox.y + section.boundingBox.height
-      }px (${section.boundingBox.width}x${section.boundingBox.height})`,
-    );
-  }
+  const normalizedSlices = normalizeSlices(snappedSlices, image.height);
+  const sections = slicesToSections(normalizedSlices, image.width, image.height);
 
-  return result;
+  return {
+    sections,
+    layoutDescription: `Detected ${sections.length} deterministic full-width sections after trimming the design image to content.`,
+    imageDimensions: {
+      width: image.width,
+      height: image.height,
+    },
+  };
 }
 
 export async function refineVisualSectionSlices(
@@ -645,150 +1176,412 @@ export async function refineVisualSectionSlices(
   layoutDescription: string;
   imageDimensions: { width: number; height: number };
 } | null> {
-  const imageDimensions = getImageDimensions(screenshotPath);
-  const result = await refineSectionSlicesViaVisionAPI(
-    screenshotPath,
-    baseSections,
-  );
-  if (!result || !result.slices || result.slices.length === 0) {
+  const extracted = await extractVisualSections(screenshotPath);
+
+  if (extracted.sections.length !== baseSections.length) {
     return null;
   }
 
-  const sliceById = new Map(
-    result.slices.map((slice) => [slice.sectionId, slice]),
-  );
+  const slices = extracted.sections.map((section) => ({
+    sectionId: section.sectionId,
+    name: section.name,
+    yStart: section.boundingBox.y,
+    yEnd: section.boundingBox.y + section.boundingBox.height,
+  }));
 
-  const orderedSlices: VisualSectionSlice[] = [];
-  for (const section of baseSections) {
-    const matched = sliceById.get(section.sectionId);
-    if (!matched) {
-      return null;
+  return {
+    slices,
+    sections: extracted.sections,
+    layoutDescription: extracted.layoutDescription,
+    imageDimensions: extracted.imageDimensions,
+  };
+}
+
+function generateSearchStarts(
+  expectedStart: number,
+  previewHeight: number,
+  sectionHeight: number,
+  step: number,
+  localBand: number,
+  fullScan: boolean,
+): number[] {
+  const maxStart = Math.max(0, previewHeight - sectionHeight);
+  if (sectionHeight > previewHeight) {
+    return [];
+  }
+
+  const starts: number[] = [];
+  const startMin = fullScan
+    ? 0
+    : clamp(expectedStart - localBand, 0, maxStart);
+  const startMax = fullScan
+    ? maxStart
+    : clamp(expectedStart + localBand, 0, maxStart);
+
+  const safeStep = Math.max(1, step);
+  for (let start = startMin; start <= startMax; start += safeStep) {
+    starts.push(start);
+  }
+
+  if (!starts.includes(expectedStart) && expectedStart <= maxStart) {
+    starts.push(clamp(expectedStart, 0, maxStart));
+  }
+
+  if (!starts.includes(maxStart)) {
+    starts.push(maxStart);
+  }
+
+  starts.sort((a, b) => a - b);
+  return starts;
+}
+
+function chooseBestMatch(
+  starts: number[],
+  expectedStart: number,
+  scoreAt: (start: number) => number,
+): { start: number | null; score: number } {
+  let bestStart: number | null = null;
+  let bestScore = -1;
+
+  for (const start of starts) {
+    const score = scoreAt(start);
+    if (bestStart == null) {
+      bestStart = start;
+      bestScore = score;
+      continue;
     }
-    orderedSlices.push({
+
+    const scoreGap = score - bestScore;
+    if (scoreGap > MATCH_TIE_BAND) {
+      bestStart = start;
+      bestScore = score;
+      continue;
+    }
+
+    if (Math.abs(scoreGap) <= MATCH_TIE_BAND) {
+      const currentDistance = Math.abs(start - expectedStart);
+      const bestDistance = Math.abs(bestStart - expectedStart);
+      if (currentDistance < bestDistance) {
+        bestStart = start;
+        bestScore = score;
+      }
+    }
+  }
+
+  return {
+    start: bestStart,
+    score: clamp(bestScore, 0, 1),
+  };
+}
+
+export async function matchVisualSections(
+  designImagePath: string,
+  previewImagePath: string,
+  sections: VisualSection[],
+  options?: {
+    stepPx?: number;
+    localBandPx?: number;
+    missingThreshold?: number;
+    lowConfidenceThreshold?: number;
+    problematicThreshold?: number;
+    matchingWidth?: number;
+  },
+): Promise<VisualSectionMatch[]> {
+  const design = await loadRawImage(designImagePath);
+  const preview = await loadRawImage(previewImagePath);
+  const designFeatures = prepareMatchingFeatures(
+    design,
+    options?.matchingWidth ?? 320,
+  );
+  const previewFeatures = prepareMatchingFeatures(
+    preview,
+    options?.matchingWidth ?? 320,
+  );
+  const designFullGray = buildGrayscale(design);
+  const previewFullGray = buildGrayscale(preview);
+  const designFullEdge = buildEdgeMap(designFullGray, design.width, design.height);
+  const previewFullEdge = buildEdgeMap(previewFullGray, preview.width, preview.height);
+
+  const stepPx = options?.stepPx ?? MATCH_STEP;
+  const localBandPx = options?.localBandPx ?? LOCAL_SEARCH_BAND;
+  const missingThreshold = options?.missingThreshold ?? MISSING_MATCH_THRESHOLD;
+  const lowConfidenceThreshold =
+    options?.lowConfidenceThreshold ?? LOW_CONFIDENCE_MATCH_THRESHOLD;
+  const problematicThreshold =
+    options?.problematicThreshold ?? PROBLEMATIC_SECTION_THRESHOLD;
+
+  const scaleYDesign = designFeatures.height / Math.max(1, design.height);
+  const scaleYPreview = previewFeatures.height / Math.max(1, preview.height);
+
+  const matches: VisualSectionMatch[] = [];
+
+  for (const section of sections) {
+    const designStartY = section.boundingBox.y;
+    const designEndY = section.boundingBox.y + section.boundingBox.height;
+    const sectionHeight = section.boundingBox.height;
+    const scaledStart = clamp(
+      Math.round(designStartY * scaleYDesign),
+      0,
+      designFeatures.height - 1,
+    );
+    const scaledEnd = clamp(
+      Math.round(designEndY * scaleYDesign),
+      scaledStart + 1,
+      designFeatures.height,
+    );
+    const scaledHeight = scaledEnd - scaledStart;
+
+    const designGray = cropFullWidthChannel(
+      designFeatures.grayscale,
+      designFeatures.width,
+      scaledStart,
+      scaledEnd,
+    );
+    const designEdge = cropFullWidthChannel(
+      designFeatures.edgeMap,
+      designFeatures.width,
+      scaledStart,
+      scaledEnd,
+    );
+
+    const scaledExpectedStart = clamp(
+      Math.round(designStartY * scaleYPreview),
+      0,
+      Math.max(0, previewFeatures.height - scaledHeight),
+    );
+    const scaledStep = Math.max(1, Math.round(stepPx * scaleYPreview));
+    const scaledBand = Math.max(1, Math.round(localBandPx * scaleYPreview));
+
+    const scoreAt = (candidateStart: number): number => {
+      const candidateEnd = candidateStart + scaledHeight;
+      const candidateGray = cropFullWidthChannel(
+        previewFeatures.grayscale,
+        previewFeatures.width,
+        candidateStart,
+        candidateEnd,
+      );
+      const candidateEdge = cropFullWidthChannel(
+        previewFeatures.edgeMap,
+        previewFeatures.width,
+        candidateStart,
+        candidateEnd,
+      );
+
+      return computeSimilarity(designGray, candidateGray, designEdge, candidateEdge);
+    };
+
+    const localStarts = generateSearchStarts(
+      scaledExpectedStart,
+      previewFeatures.height,
+      scaledHeight,
+      scaledStep,
+      scaledBand,
+      false,
+    );
+    let best = chooseBestMatch(localStarts, scaledExpectedStart, scoreAt);
+
+    if (
+      (best.start == null || best.score < lowConfidenceThreshold) &&
+      previewFeatures.height > scaledHeight
+    ) {
+      const fullStarts = generateSearchStarts(
+        scaledExpectedStart,
+        previewFeatures.height,
+        scaledHeight,
+        scaledStep,
+        scaledBand,
+        true,
+      );
+      best = chooseBestMatch(fullStarts, scaledExpectedStart, scoreAt);
+    }
+
+    const matchedStartY =
+      best.start == null
+        ? null
+        : clamp(
+            Math.round(best.start / Math.max(scaleYPreview, 0.0001)),
+            0,
+            Math.max(0, preview.height - sectionHeight),
+          );
+    const matchedEndY =
+      matchedStartY == null
+        ? null
+        : clamp(matchedStartY + sectionHeight, matchedStartY + 1, preview.height);
+
+    if (best.start == null || matchedStartY == null || matchedEndY == null) {
+      matches.push({
+        sectionId: section.sectionId,
+        name: section.name,
+        description: section.description,
+        designRange: {
+          startY: designStartY,
+          endY: designEndY,
+        },
+        matchedRange: null,
+        matchScore: clamp(best.score, 0, 1),
+        similarityScore: 0,
+        signals: {
+          pixelDifference: 1,
+          edgeDifference: 1,
+          structuralSimilarity: 0,
+          finalSimilarityScore: 0,
+        },
+        humanDescription: describeSectionDifference(
+          "missing",
+          {
+            pixelDifference: 1,
+            edgeDifference: 1,
+            structuralSimilarity: 0,
+            finalSimilarityScore: 0,
+          },
+          clamp(best.score, 0, 1),
+        ),
+        explanationConfidence: null,
+        explanationSource: "deterministic_fallback",
+        status: "missing",
+      });
+      continue;
+    }
+
+    const fullGrayDesign = cropFullWidthChannel(
+      designFullGray,
+      design.width,
+      designStartY,
+      designEndY,
+    );
+    const fullGrayPreview = cropFullWidthChannel(
+      previewFullGray,
+      preview.width,
+      matchedStartY,
+      matchedEndY,
+    );
+    const fullEdgeDesign = cropFullWidthChannel(
+      designFullEdge,
+      design.width,
+      designStartY,
+      designEndY,
+    );
+    const fullEdgePreview = cropFullWidthChannel(
+      previewFullEdge,
+      preview.width,
+      matchedStartY,
+      matchedEndY,
+    );
+
+    const signals = computeVisualSignals(
+      fullGrayDesign,
+      fullGrayPreview,
+      fullEdgeDesign,
+      fullEdgePreview,
+    );
+    const similarityScore = signals.finalSimilarityScore;
+
+    const normalizedMatchScore = clamp(best.score, 0, 1);
+    const isMissing = normalizedMatchScore < missingThreshold;
+    const status =
+      isMissing
+        ? "missing"
+        : normalizedMatchScore < lowConfidenceThreshold ||
+            similarityScore < problematicThreshold
+          ? "problematic"
+          : "matched";
+    const finalSignals = isMissing
+      ? {
+          pixelDifference: 1,
+          edgeDifference: 1,
+          structuralSimilarity: 0,
+          finalSimilarityScore: 0,
+        }
+      : signals;
+    const humanDescription = describeSectionDifference(
+      status,
+      finalSignals,
+      normalizedMatchScore,
+    );
+
+    matches.push({
       sectionId: section.sectionId,
       name: section.name,
-      yStart: matched.yStart,
-      yEnd: matched.yEnd,
+      description: section.description,
+      designRange: {
+        startY: designStartY,
+        endY: designEndY,
+      },
+      matchedRange: isMissing
+        ? null
+        : {
+            startY: matchedStartY,
+            endY: matchedEndY,
+          },
+      matchScore: normalizedMatchScore,
+      similarityScore: clamp(similarityScore, 0, 1),
+      signals: finalSignals,
+      humanDescription,
+      explanationConfidence: null,
+      explanationSource: "deterministic_fallback",
+      status,
     });
   }
 
-  const snappedSlices = await snapSliceBoundariesToWhitespace(
-    screenshotPath,
-    orderedSlices,
-    imageDimensions.height,
-  );
-  const normalized = normalizeSlices(snappedSlices, imageDimensions.height);
-  const sections = slicesToSections(
-    normalized,
-    imageDimensions.width,
-    baseSections,
-  );
-
-  return {
-    slices: normalized,
-    sections,
-    layoutDescription: result.layoutDescription,
-    imageDimensions,
-  };
+  return matches;
 }
 
 export function formatVisualSectionsAsAnalysis(
   result: VisualSectionsResult,
 ): string {
-  let output = `### Visual Section Analysis (vision API)\n`;
+  let output = "### Visual Section Analysis (deterministic)\n";
   output += `Layout: ${result.layoutDescription}\n\n`;
-  output += `### Sections (in order of appearance):\n`;
+  output += "### Sections (top to bottom)\n";
 
   result.sections.forEach((section, index) => {
     output += `${index + 1}. ${section.name}\n`;
     output += `   - Section ID: ${section.sectionId}\n`;
     output += `   - Position: ${section.position}\n`;
     output += `   - Description: ${section.description}\n`;
-    output += `   - Visual Patterns: ${section.visualPatterns}\n`;
-    output += `   - Bounding Box: x=${section.boundingBox.x}, y=${section.boundingBox.y}, w=${section.boundingBox.width}, h=${section.boundingBox.height}\n`;
-    output += `   - HTML Element: none (visual detection)\n`;
-    output += `   - HTML ID: none\n`;
-    output += `   - HTML Classes: none\n`;
-    output += `   - ARIA Label: none\n`;
-    output += `   - Content Identifier: ${section.description.substring(0, 50)}\n\n`;
+    output += `   - Bounding Box: x=${section.boundingBox.x}, y=${section.boundingBox.y}, w=${section.boundingBox.width}, h=${section.boundingBox.height}\n\n`;
   });
 
   return output;
 }
 
-/**
- * Take screenshots of detected visual sections from a URL.
- *
- * Uses the bounding boxes from visual section detection to capture section
- * screenshots from a live URL.
- */
-export async function takeSectionScreenshotsFromVisualBounds(
-  stagehand: Stagehand,
-  url: string,
-  sections: VisualSection[],
-  outputDir: string,
-  pageSuffix: string,
-  indexBySectionId?: Map<string, number>,
-): Promise<Record<string, string>> {
-  const screenshots: Record<string, string> = {};
-  const page = stagehand.context.pages()[0];
+export function formatMatchedSectionsAsAnalysis(
+  sectionsResult: VisualSectionsResult,
+  matches: VisualSectionMatch[],
+): string {
+  let output = "### Visual Section Matching (deterministic)\n";
+  output += `Layout: ${sectionsResult.layoutDescription}\n`;
+  output += `Detected Sections: ${sectionsResult.sections.length}\n\n`;
+  output += "### Section Matches\n";
 
-  // Get current viewport width (preserve it if already set to match base image).
-  const currentViewport = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const win = (globalThis as any).window;
-    return {
-      width: win.innerWidth || 1920,
-      height: win.innerHeight || 1080,
-    };
-  });
-  const viewportWidth = currentViewport.width;
-
-  // Navigate to the URL (viewport should already be set by caller).
-  await page.goto(url, { waitUntil: "networkidle", timeoutMs: 60000 });
-
-  // Get the full page height.
-  const fullPageHeight = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const doc = (globalThis as any).document;
-    return Math.max(
-      doc.body.scrollHeight,
-      doc.body.offsetHeight,
-      doc.documentElement.clientHeight,
-      doc.documentElement.scrollHeight,
-      doc.documentElement.offsetHeight,
-    );
+  matches.forEach((match, index) => {
+    output += `${index + 1}. ${match.name}\n`;
+    output += `   - Section ID: ${match.sectionId}\n`;
+    output += `   - Design Range: y=${match.designRange.startY}-${match.designRange.endY}\n`;
+    output += `   - Matched Range: ${
+      match.matchedRange
+        ? `y=${match.matchedRange.startY}-${match.matchedRange.endY}`
+        : "none"
+    }\n`;
+    output += `   - Match Score: ${match.matchScore.toFixed(3)}\n`;
+    output += `   - Similarity Score: ${match.similarityScore.toFixed(3)}\n`;
+    output += `   - Pixel Difference: ${match.signals.pixelDifference.toFixed(3)}\n`;
+    output += `   - Edge Difference: ${match.signals.edgeDifference.toFixed(3)}\n`;
+    output += `   - Structural Similarity: ${match.signals.structuralSimilarity.toFixed(3)}\n`;
+    output += `   - Status: ${match.status}\n`;
+    output += `   - Explanation Source: ${match.explanationSource}\n`;
+    output += `   - Explanation Confidence: ${
+      match.explanationConfidence == null
+        ? "n/a"
+        : match.explanationConfidence.toFixed(3)
+    }\n`;
+    output += `   - Description: ${match.humanDescription}\n`;
+    output += `   - Detection Notes: ${match.description}\n\n`;
   });
 
-  // Set viewport to full page height while preserving width.
-  page.setViewportSize(viewportWidth, fullPageHeight);
+  return output;
+}
 
-  for (const section of sections) {
-    try {
-      const index = indexBySectionId?.get(section.sectionId);
-      const indexPrefix = index ? `${String(index).padStart(2, "0")}_` : "";
-      const outputPath = join(
-        outputDir,
-        `preview_screenshot_${pageSuffix}_section_${indexPrefix}${section.sectionId}.png`,
-      );
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const screenshot = await page.screenshot({
-        clip: {
-          x: section.boundingBox.x,
-          y: section.boundingBox.y,
-          width: section.boundingBox.width,
-          height: section.boundingBox.height,
-        },
-      } as any);
-
-      writeFileSync(outputPath, screenshot);
-      screenshots[section.sectionId] = outputPath;
-      console.log(`Captured section screenshot: ${section.sectionId}`);
-    } catch (error) {
-      console.warn(`Failed to capture section ${section.sectionId}: ${error}`);
-    }
-  }
-
-  return screenshots;
+export function buildSectionId(name: string, index: number): string {
+  const value = toKebabCase(name);
+  return value || `section-${String(index + 1).padStart(2, "0")}`;
 }

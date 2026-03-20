@@ -1,13 +1,20 @@
 export { isImageSourceUrl } from "./detector.js";
 export { downloadImageToPng } from "./fetch.js";
 export {
+  trimImageToContent,
   extractVisualSections,
   refineVisualSectionSlices,
   formatVisualSectionsAsAnalysis,
-  takeSectionScreenshotsFromVisualBounds,
+  matchVisualSections,
+  formatMatchedSectionsAsAnalysis,
+  snapSliceBoundariesToWhitespace,
 } from "./visual-sections.js";
 export type {
   VisualSection,
   VisualSectionSlice,
   VisualSectionsResult,
+  TrimResult,
+  VisualSectionMatch,
+  VisualSectionSignals,
 } from "./visual-sections.js";
+export { buildImageModeVisualAnalysis } from "./report.js";

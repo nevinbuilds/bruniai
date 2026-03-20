@@ -154,3 +154,21 @@ export const ImageAnalysisResultSchema = z.object({
 });
 
 export type ImageAnalysisResult = z.infer<typeof ImageAnalysisResultSchema>;
+
+export const SectionDiffExplanationSchema = z.object({
+  section_id: z.string(),
+  explanation: z.string(),
+  explanation_confidence: z.number().min(0).max(1),
+});
+
+export type SectionDiffExplanation = z.infer<
+  typeof SectionDiffExplanationSchema
+>;
+
+export const SectionDiffExplanationsSchema = z.object({
+  sections: z.array(SectionDiffExplanationSchema),
+});
+
+export type SectionDiffExplanations = z.infer<
+  typeof SectionDiffExplanationsSchema
+>;

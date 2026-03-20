@@ -115,7 +115,13 @@ export function parseMultiPageAnalysisResults(
   const reports: PageReport[] = [];
 
   for (const pageResult of pageResults) {
-    const { page_path, base_url, pr_url, visual_analysis, image_refs } =
+    const {
+      page_path,
+      base_url,
+      pr_url,
+      visual_analysis,
+      image_refs,
+    } =
       pageResult;
 
     // Determine status using the general function

@@ -1,41 +1,38 @@
 /**
- * Image-to-URL comparison core functionality.
+ * Deterministic image-to-URL comparison workflow.
  *
- * This compares a baseline image (downloaded from a URL) against a live URL.
+ * The design image is trimmed and segmented first. Each detected design
+ * section then searches the webpage screenshot for the best matching region.
  */
 
 import type { Stagehand } from "@browserbasehq/stagehand";
 import { generateDiffImage } from "../diff/diff.js";
 import {
   downloadImageToPng,
+  trimImageToContent,
   extractVisualSections,
-  refineVisualSectionSlices,
-  formatVisualSectionsAsAnalysis,
-  takeSectionScreenshotsFromVisualBounds,
+  matchVisualSections,
+  formatMatchedSectionsAsAnalysis,
+  buildImageModeVisualAnalysis,
 } from "../image/index.js";
-import { analyzeImagesWithVisionImageMode } from "../vision/index.js";
 import {
   ensureViewportSize,
   ensurePageFullyRendered,
 } from "../utils/window.js";
+import { analyzeSectionDiffExplanationsAgent } from "../vision/index.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
+import type { SectionVisualResult } from "../reporter/types.js";
 import { join } from "path";
 import { writeFileSync } from "fs";
 import sharp from "sharp";
 
 export interface ImageComparisonOptions {
   stagehand: Stagehand;
-  /** Baseline image URL. */
   baseImageUrl: string;
-  /** Preview/live URL to compare against. */
   previewUrl: string;
-  /** Page path for the comparison (used for file naming). */
   page: string;
-  /** Directory where images should be saved. */
   imagesDir: string;
-  /** Optional PR number for metadata. */
   prNumber?: string;
-  /** Optional repository name for metadata. */
   repository?: string;
 }
 
@@ -46,29 +43,55 @@ export interface ImageComparisonResult {
   preview_screenshot: string;
   diff_image: string;
   section_screenshots: Record<string, { base: string; preview: string }>;
+  section_results: SectionVisualResult[];
   mode: "image-to-url";
 }
 
-async function cropSectionFromImage(
+interface SectionArtifacts {
+  base: string;
+  preview: string;
+  diff: string;
+}
+
+function buildLlmUnavailableExplanation(reason: string): string {
+  return `${reason} Review the matched section crop and diff image directly for the exact visual change.`;
+}
+
+async function cropImageRegion(
   imagePath: string,
   outputPath: string,
-  boundingBox: { x: number; y: number; width: number; height: number },
-  imageWidth: number,
-  imageHeight: number,
+  bounds: { left: number; top: number; width: number; height: number },
 ): Promise<void> {
-  const left = Math.max(0, Math.round(boundingBox.x));
-  const top = Math.max(0, Math.round(boundingBox.y));
-  const width = Math.max(1, Math.round(boundingBox.width));
-  const height = Math.max(1, Math.round(boundingBox.height));
+  const metadata = await sharp(imagePath).metadata();
+  const imageWidth = metadata.width || 1;
+  const imageHeight = metadata.height || 1;
 
-  const safeWidth = Math.min(width, Math.max(1, imageWidth - left));
-  const safeHeight = Math.min(height, Math.max(1, imageHeight - top));
+  const left = Math.max(0, Math.round(bounds.left));
+  const top = Math.max(0, Math.round(bounds.top));
+  const width = Math.max(1, Math.min(Math.round(bounds.width), imageWidth - left));
+  const height = Math.max(1, Math.min(Math.round(bounds.height), imageHeight - top));
 
-  const buffer = await sharp(imagePath)
-    .extract({ left, top, width: safeWidth, height: safeHeight })
+  await sharp(imagePath)
+    .extract({ left, top, width, height })
     .png()
-    .toBuffer();
-  writeFileSync(outputPath, buffer);
+    .toFile(outputPath);
+}
+
+async function resizeImageToWidth(
+  inputPath: string,
+  outputPath: string,
+  width: number,
+): Promise<{ width: number; height: number }> {
+  await sharp(inputPath)
+    .resize({ width, withoutEnlargement: false })
+    .png()
+    .toFile(outputPath);
+
+  const metadata = await sharp(outputPath).metadata();
+  return {
+    width: metadata.width || width,
+    height: metadata.height || 1,
+  };
 }
 
 export async function performImageComparison(
@@ -84,158 +107,263 @@ export async function performImageComparison(
     repository = "",
   } = options;
 
-  console.log(
-    `\n${"=".repeat(50)}\n🖼️ Starting Image-to-URL Comparison\n${"=".repeat(50)}`,
-  );
-  console.log(`Base Image URL: ${baseImageUrl}`);
-  console.log(`Preview URL: ${previewUrl}`);
-
   let pageSuffix = page.replace(/\//g, "_");
   pageSuffix = pageSuffix === "_" ? "home" : pageSuffix;
 
-  // Step 1: Download base image and normalize to PNG.
-  console.log("\n📥 Step 1: Downloading base image...");
-  const baseScreenshotPath = join(
+  const baseOriginalPath = join(imagesDir, `base_original_${pageSuffix}.png`);
+  const baseScreenshotPath = join(imagesDir, `base_screenshot_${pageSuffix}.png`);
+  const previewOriginalPath = join(
     imagesDir,
-    `base_screenshot_${pageSuffix}.png`,
+    `preview_original_${pageSuffix}.png`,
   );
-  await downloadImageToPng(baseImageUrl, baseScreenshotPath);
-  console.log(`Base image saved: ${baseScreenshotPath}`);
-
-  // Get base image dimensions to match viewport width.
-  const baseImageMeta = await sharp(baseScreenshotPath).metadata();
-  const baseImageWidth = baseImageMeta.width || 1920;
-  const baseImageHeight = baseImageMeta.height || 1080;
-  console.log(`Base image dimensions: ${baseImageWidth}x${baseImageHeight}`);
-
-  // Step 2: Screenshot preview URL at the same width as base image.
-  console.log("\n📸 Step 2: Capturing preview URL screenshot...");
-  const pageHandle = stagehand.context.pages()[0];
-  // Set viewport to match base image width for accurate comparison.
-  await ensureViewportSize(pageHandle, previewUrl, baseImageWidth, 1080);
-  await ensurePageFullyRendered(pageHandle);
-  const previewScreenshot = await pageHandle.screenshot({ fullPage: true });
   const previewScreenshotPath = join(
     imagesDir,
     `preview_screenshot_${pageSuffix}.png`,
   );
-  writeFileSync(previewScreenshotPath, previewScreenshot);
-  console.log(`Preview screenshot saved: ${previewScreenshotPath}`);
+  const diffImagePath = join(imagesDir, `diff_${pageSuffix}.png`);
 
-  const previewMeta = await sharp(previewScreenshotPath).metadata();
-  const previewImageWidth = previewMeta.width || baseImageWidth;
-  const previewImageHeight = previewMeta.height || baseImageHeight;
   console.log(
-    `Preview image dimensions: ${previewImageWidth}x${previewImageHeight}`,
+    `\n${"=".repeat(50)}\n🖼️ Starting deterministic image-to-URL comparison\n${"=".repeat(50)}`,
   );
 
-  // Step 3: Generate diff image.
-  console.log("\n🔍 Step 3: Generating diff image...");
-  const diffImagePath = join(imagesDir, `diff_${pageSuffix}.png`);
-  await generateDiffImage(
+  console.log("\n📥 Step 1: Downloading design image...");
+  await downloadImageToPng(baseImageUrl, baseOriginalPath);
+
+  console.log("\n✂️ Step 2: Trimming design image margins...");
+  const trimResult = await trimImageToContent(baseOriginalPath, baseScreenshotPath);
+  const baseWidth = trimResult.trimmedDimensions.width;
+
+  console.log("\n📸 Step 3: Capturing webpage screenshot...");
+  const pageHandle = stagehand.context.pages()[0];
+  await ensureViewportSize(pageHandle, previewUrl, baseWidth, 1080);
+  await ensurePageFullyRendered(pageHandle);
+  const previewScreenshot = await pageHandle.screenshot({ fullPage: true });
+  writeFileSync(previewOriginalPath, previewScreenshot);
+
+  console.log("\n📏 Step 4: Normalizing webpage screenshot width...");
+  await resizeImageToWidth(previewOriginalPath, previewScreenshotPath, baseWidth);
+
+  console.log("\n🔍 Step 5: Generating full-page diff...");
+  await generateDiffImage(baseScreenshotPath, previewScreenshotPath, diffImagePath);
+
+  console.log("\n🧩 Step 6: Detecting design sections...");
+  const sectionsResult = await extractVisualSections(baseScreenshotPath);
+
+  console.log("\n🧭 Step 7: Matching design sections inside webpage screenshot...");
+  const sectionMatches = await matchVisualSections(
     baseScreenshotPath,
     previewScreenshotPath,
-    diffImagePath,
-  );
-  console.log(`Diff image saved: ${diffImagePath}`);
-
-  // Step 4: Extract visual sections from the base image.
-  console.log(
-    "\n🤖 Step 4: Extracting visual sections from BASE image (LLM-first)...",
-  );
-  // Important: sections must be derived from the BASE image only.
-  let baseSectionsResult = await extractVisualSections(baseScreenshotPath);
-  const refinedSlices = await refineVisualSectionSlices(
-    baseScreenshotPath,
-    baseSectionsResult.sections,
-  );
-  if (refinedSlices) {
-    baseSectionsResult = {
-      sections: refinedSlices.sections,
-      layoutDescription: refinedSlices.layoutDescription,
-      imageDimensions: refinedSlices.imageDimensions,
-    };
-    console.log("Refined section slice boundaries from base image.");
-  } else {
-    console.log("Using initial visual sections (no slice refinement).");
-  }
-
-  const sectionsAnalysis = formatVisualSectionsAsAnalysis(baseSectionsResult);
-  console.log(
-    `\n${"=".repeat(50)}\n🗺️ Visual Sections Analysis:\n${sectionsAnalysis}\n${"=".repeat(50)}`,
+    sectionsResult.sections,
   );
 
-  // Step 5: Capture section screenshots.
-  console.log("\n📷 Step 5: Capturing section screenshots...");
-  const sectionScreenshots: Record<string, { base: string; preview: string }> =
-    {};
+  const sectionsAnalysis = formatMatchedSectionsAsAnalysis(
+    sectionsResult,
+    sectionMatches,
+  );
 
-  const sectionIndexById = new Map<string, number>();
-  baseSectionsResult.sections.forEach((section, index) => {
-    sectionIndexById.set(section.sectionId, index + 1);
-  });
+  console.log("\n🖼️ Step 8: Cropping matched section screenshots...");
+  const sectionScreenshots: Record<string, { base: string; preview: string }> = {};
+  const sectionArtifacts = new Map<string, SectionArtifacts>();
 
-  // Capture preview section screenshots by using the bounding boxes from the base image.
-  const previewSectionScreenshots =
-    await takeSectionScreenshotsFromVisualBounds(
-      stagehand,
-      previewUrl,
-      baseSectionsResult.sections,
-      imagesDir,
-      pageSuffix,
-      sectionIndexById,
-    );
-
-  // Crop base sections from the base image and pair with preview screenshots (if available).
-  for (const section of baseSectionsResult.sections) {
-    const sectionId = section.sectionId;
-    const index = sectionIndexById.get(sectionId);
-    const indexPrefix = index ? `${String(index).padStart(2, "0")}_` : "";
+  for (let index = 0; index < sectionMatches.length; index++) {
+    const match = sectionMatches[index];
+    const indexPrefix = `${String(index + 1).padStart(2, "0")}_`;
+    const sectionHeight = match.designRange.endY - match.designRange.startY;
     const baseSectionPath = join(
       imagesDir,
-      `base_screenshot_${pageSuffix}_section_${indexPrefix}${sectionId}.png`,
+      `base_screenshot_${pageSuffix}_section_${indexPrefix}${match.sectionId}.png`,
     );
-    try {
-      await cropSectionFromImage(
-        baseScreenshotPath,
-        baseSectionPath,
-        section.boundingBox,
-        baseImageWidth,
-        baseImageHeight,
-      );
 
-      const previewPath = previewSectionScreenshots[sectionId];
-      if (previewPath) {
-        sectionScreenshots[sectionId] = {
-          base: baseSectionPath,
-          preview: previewPath,
-        };
-      } else {
-        sectionScreenshots[sectionId] = { base: baseSectionPath, preview: "" };
-      }
-    } catch (error) {
-      console.warn(`Failed to crop base section ${sectionId}: ${error}`);
+    await cropImageRegion(baseScreenshotPath, baseSectionPath, {
+      left: 0,
+      top: match.designRange.startY,
+      width: baseWidth,
+      height: sectionHeight,
+    });
+
+    let previewSectionPath = "";
+    let sectionDiffPath = "";
+    if (match.matchedRange) {
+      previewSectionPath = join(
+        imagesDir,
+        `preview_screenshot_${pageSuffix}_section_${indexPrefix}${match.sectionId}.png`,
+      );
+      await cropImageRegion(previewScreenshotPath, previewSectionPath, {
+        left: 0,
+        top: match.matchedRange.startY,
+        width: baseWidth,
+        height: match.matchedRange.endY - match.matchedRange.startY,
+      });
+
+      sectionDiffPath = join(
+        imagesDir,
+        `diff_${pageSuffix}_section_${indexPrefix}${match.sectionId}.png`,
+      );
+      await generateDiffImage(baseSectionPath, previewSectionPath, sectionDiffPath);
+    }
+
+    if (previewSectionPath) {
+      sectionScreenshots[match.sectionId] = {
+        base: baseSectionPath,
+        preview: previewSectionPath,
+      };
+    }
+
+    if (previewSectionPath && sectionDiffPath) {
+      sectionArtifacts.set(match.sectionId, {
+        base: baseSectionPath,
+        preview: previewSectionPath,
+        diff: sectionDiffPath,
+      });
     }
   }
 
-  console.log(
-    `Captured ${Object.keys(sectionScreenshots).length} section screenshot pairs`,
-  );
+  console.log("\n🧠 Step 9: Explaining matched sections with vision...");
+  if (process.env.OPENAI_API_KEY) {
+    const explainableSections = sectionMatches
+      .filter((match) => match.status !== "missing")
+      .map((match) => {
+        const artifacts = sectionArtifacts.get(match.sectionId);
+        if (!artifacts) {
+          return null;
+        }
 
-  // Step 6: Perform visual analysis (skip base URL navigation).
-  console.log("\n🧠 Step 6: Performing visual analysis (image mode)...");
-  const visualAnalysis = await analyzeImagesWithVisionImageMode(
-    baseScreenshotPath,
-    previewScreenshotPath,
-    diffImagePath,
-    baseImageUrl,
+        return {
+          section_id: match.sectionId,
+          name: match.name,
+          base_screenshot: artifacts.base,
+          preview_screenshot: artifacts.preview,
+          diff_image: artifacts.diff,
+          match_score: match.matchScore,
+          final_similarity_score: match.signals.finalSimilarityScore,
+          pixel_difference: match.signals.pixelDifference,
+          edge_difference: match.signals.edgeDifference,
+          structural_similarity: match.signals.structuralSimilarity,
+        };
+      })
+      .filter((section): section is NonNullable<typeof section> => section !== null);
+
+    if (explainableSections.length > 0) {
+      try {
+        const explanations = await analyzeSectionDiffExplanationsAgent(
+          explainableSections,
+          baseImageUrl,
+          previewUrl,
+        );
+        const explanationsById = new Map(
+          explanations.map((explanation) => [explanation.section_id, explanation]),
+        );
+        let acceptedCount = 0;
+
+        for (const match of sectionMatches) {
+          const explanation = explanationsById.get(match.sectionId);
+          if (!explanation) {
+            continue;
+          }
+
+          match.humanDescription = explanation.explanation;
+          match.explanationConfidence = explanation.explanation_confidence;
+          match.explanationSource = "llm";
+          acceptedCount += 1;
+        }
+
+        const degradedSections = explainableSections.filter(
+          (section) => !explanationsById.has(section.section_id),
+        );
+        if (degradedSections.length > 0) {
+          console.warn(
+            `Section explanation agent returned ${acceptedCount}/${explainableSections.length} usable explanations. Falling back for: ${degradedSections
+              .map((section) => section.section_id)
+              .join(", ")}`,
+          );
+          for (const section of degradedSections) {
+            const match = sectionMatches.find(
+              (candidate) => candidate.sectionId === section.section_id,
+            );
+            if (!match) {
+              continue;
+            }
+            match.humanDescription = buildLlmUnavailableExplanation(
+              "The section was compared with the vision model, but it did not return a section-specific explanation.",
+            );
+            match.explanationConfidence = null;
+            match.explanationSource = "fallback_generic";
+          }
+        }
+      } catch (error) {
+        console.warn(`Section explanation agent failed: ${error}`);
+        for (const match of sectionMatches) {
+          if (match.status === "missing") {
+            continue;
+          }
+          match.humanDescription = buildLlmUnavailableExplanation(
+            "The section was compared with the vision model, but the LLM explanation step failed.",
+          );
+          match.explanationConfidence = null;
+          match.explanationSource = "fallback_error";
+        }
+      }
+    }
+  } else {
+    console.log("Skipping section explanation agent because OPENAI_API_KEY is not set.");
+    for (const match of sectionMatches) {
+      if (match.status === "missing") {
+        continue;
+      }
+      match.humanDescription = buildLlmUnavailableExplanation(
+        "The section was compared with the vision model, but OPENAI_API_KEY is not set so no LLM explanation was generated.",
+      );
+      match.explanationConfidence = null;
+      match.explanationSource = "fallback_no_key";
+    }
+  }
+
+  const sectionResults: SectionVisualResult[] = sectionMatches.map((match) => {
+    const artifacts = sectionArtifacts.get(match.sectionId);
+    return {
+      section_id: match.sectionId,
+      name: match.name,
+      status: match.status,
+      design_range: {
+        start_y: match.designRange.startY,
+        end_y: match.designRange.endY,
+      },
+      matched_range: match.matchedRange
+        ? {
+            start_y: match.matchedRange.startY,
+            end_y: match.matchedRange.endY,
+          }
+        : null,
+      match_score: match.matchScore,
+      similarity_score: match.similarityScore,
+      signals: {
+        pixel_difference: match.signals.pixelDifference,
+        edge_difference: match.signals.edgeDifference,
+        structural_similarity: match.signals.structuralSimilarity,
+        final_similarity_score: match.signals.finalSimilarityScore,
+      },
+      description: match.humanDescription,
+      explanation: match.humanDescription,
+      explanation_confidence: match.explanationConfidence,
+      explanation_source: match.explanationSource,
+      image_refs: artifacts
+        ? {
+            base: artifacts.base,
+            preview: artifacts.preview,
+            diff: artifacts.diff,
+          }
+        : null,
+    };
+  });
+
+  console.log("\n🧠 Step 10: Building deterministic report...");
+  const visualAnalysis = buildImageModeVisualAnalysis({
+    baseUrl: baseImageUrl,
     previewUrl,
     prNumber,
     repository,
-    sectionsAnalysis,
-  );
-
-  console.log(`Visual analysis completed: ${visualAnalysis.status}`);
+    sectionMatches,
+  });
 
   return {
     visual_analysis: visualAnalysis,
@@ -244,6 +372,7 @@ export async function performImageComparison(
     preview_screenshot: previewScreenshotPath,
     diff_image: diffImagePath,
     section_screenshots: sectionScreenshots,
+    section_results: sectionResults,
     mode: "image-to-url",
   };
 }

@@ -2,6 +2,19 @@ import { v4 as uuidv4 } from "uuid";
 import { readFileSync } from "fs";
 import type { VisualAnalysisResult } from "./types.js";
 
+export interface SectionDiffReviewCard {
+  section_id: string;
+  name: string;
+  base_screenshot: string;
+  preview_screenshot: string;
+  diff_image: string;
+  match_score: number;
+  final_similarity_score: number;
+  pixel_difference: number;
+  edge_difference: number;
+  structural_similarity: number;
+}
+
 /**
  * Maximum length for PR title input.
  */
@@ -343,6 +356,145 @@ export function createImageComparisonHtml(
             </div>
         </div>
     </div>
+</body>
+</html>`;
+}
+
+export function createSectionDiffReviewHtml(
+  cards: SectionDiffReviewCard[],
+  base_url: string,
+  preview_url: string,
+): string {
+  const cardHtml = cards
+    .map((card) => {
+      const baseImageData = readFileSync(card.base_screenshot);
+      const previewImageData = readFileSync(card.preview_screenshot);
+      const diffImageData = readFileSync(card.diff_image);
+
+      const baseMimeType = getImageMimeType(card.base_screenshot);
+      const previewMimeType = getImageMimeType(card.preview_screenshot);
+      const diffMimeType = getImageMimeType(card.diff_image);
+
+      return `
+        <section class="section-card" data-section-id="${card.section_id}">
+          <header class="section-header">
+            <h2>${card.name}</h2>
+            <p class="section-id">Section ID: ${card.section_id}</p>
+          </header>
+          <div class="metrics">
+            <span>Match: ${card.match_score.toFixed(3)}</span>
+            <span>Similarity: ${card.final_similarity_score.toFixed(3)}</span>
+            <span>Pixel diff: ${card.pixel_difference.toFixed(3)}</span>
+            <span>Edge diff: ${card.edge_difference.toFixed(3)}</span>
+            <span>SSIM: ${card.structural_similarity.toFixed(3)}</span>
+          </div>
+          <div class="comparison-grid">
+            <div class="image-panel">
+              <h3>Design Section</h3>
+              <img src="data:${baseMimeType};base64,${baseImageData.toString("base64")}" alt="Design section ${card.name}" />
+            </div>
+            <div class="image-panel">
+              <h3>Webpage Section</h3>
+              <img src="data:${previewMimeType};base64,${previewImageData.toString("base64")}" alt="Webpage section ${card.name}" />
+            </div>
+            <div class="image-panel">
+              <h3>Section Diff</h3>
+              <img src="data:${diffMimeType};base64,${diffImageData.toString("base64")}" alt="Diff image ${card.name}" />
+            </div>
+          </div>
+        </section>
+      `;
+    })
+    .join("\n");
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Section Diff Review</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      color: #111827;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .header {
+      margin-bottom: 24px;
+    }
+    .section-card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+    .section-header h2 {
+      margin: 0 0 4px;
+      font-size: 24px;
+    }
+    .section-id {
+      margin: 0;
+      color: #6b7280;
+    }
+    .metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 16px 0 12px;
+      font-size: 14px;
+      color: #374151;
+    }
+    .fallback {
+      margin: 0 0 16px;
+      color: #4b5563;
+    }
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .image-panel {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .image-panel h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .image-panel img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+    }
+    @media (max-width: 1000px) {
+      .comparison-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Section Diff Review</h1>
+      <p><strong>Base:</strong> ${base_url}</p>
+      <p><strong>Preview:</strong> ${preview_url}</p>
+    </div>
+    ${cardHtml}
+  </div>
 </body>
 </html>`;
 }
