@@ -19,6 +19,7 @@ import {
   ensureViewportSize,
   ensurePageFullyRendered,
 } from "../utils/window.js";
+import { analyzeSectionDiffExplanationsAgent } from "../vision/index.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
 import type { SectionVisualResult } from "../reporter/types.js";
 import { join } from "path";
@@ -44,6 +45,16 @@ export interface ImageComparisonResult {
   section_screenshots: Record<string, { base: string; preview: string }>;
   section_results: SectionVisualResult[];
   mode: "image-to-url";
+}
+
+interface SectionArtifacts {
+  base: string;
+  preview: string;
+  diff: string;
+}
+
+function buildLlmUnavailableExplanation(reason: string): string {
+  return `${reason} Review the matched section crop and diff image directly for the exact visual change.`;
 }
 
 async function cropImageRegion(
@@ -152,7 +163,7 @@ export async function performImageComparison(
 
   console.log("\n🖼️ Step 8: Cropping matched section screenshots...");
   const sectionScreenshots: Record<string, { base: string; preview: string }> = {};
-  const sectionResults: SectionVisualResult[] = [];
+  const sectionArtifacts = new Map<string, SectionArtifacts>();
 
   for (let index = 0; index < sectionMatches.length; index++) {
     const match = sectionMatches[index];
@@ -198,7 +209,119 @@ export async function performImageComparison(
       };
     }
 
-    sectionResults.push({
+    if (previewSectionPath && sectionDiffPath) {
+      sectionArtifacts.set(match.sectionId, {
+        base: baseSectionPath,
+        preview: previewSectionPath,
+        diff: sectionDiffPath,
+      });
+    }
+  }
+
+  console.log("\n🧠 Step 9: Explaining matched sections with vision...");
+  if (process.env.OPENAI_API_KEY) {
+    const explainableSections = sectionMatches
+      .filter((match) => match.status !== "missing")
+      .map((match) => {
+        const artifacts = sectionArtifacts.get(match.sectionId);
+        if (!artifacts) {
+          return null;
+        }
+
+        return {
+          section_id: match.sectionId,
+          name: match.name,
+          base_screenshot: artifacts.base,
+          preview_screenshot: artifacts.preview,
+          diff_image: artifacts.diff,
+          match_score: match.matchScore,
+          final_similarity_score: match.signals.finalSimilarityScore,
+          pixel_difference: match.signals.pixelDifference,
+          edge_difference: match.signals.edgeDifference,
+          structural_similarity: match.signals.structuralSimilarity,
+        };
+      })
+      .filter((section): section is NonNullable<typeof section> => section !== null);
+
+    if (explainableSections.length > 0) {
+      try {
+        const explanations = await analyzeSectionDiffExplanationsAgent(
+          stagehand,
+          explainableSections,
+          baseImageUrl,
+          previewUrl,
+        );
+        const explanationsById = new Map(
+          explanations.map((explanation) => [explanation.section_id, explanation]),
+        );
+        let acceptedCount = 0;
+
+        for (const match of sectionMatches) {
+          const explanation = explanationsById.get(match.sectionId);
+          if (!explanation) {
+            continue;
+          }
+
+          match.humanDescription = explanation.explanation;
+          match.explanationConfidence = explanation.explanation_confidence;
+          match.explanationSource = "llm";
+          acceptedCount += 1;
+        }
+
+        const degradedSections = explainableSections.filter(
+          (section) => !explanationsById.has(section.section_id),
+        );
+        if (degradedSections.length > 0) {
+          console.warn(
+            `Section explanation agent returned ${acceptedCount}/${explainableSections.length} usable explanations. Falling back for: ${degradedSections
+              .map((section) => section.section_id)
+              .join(", ")}`,
+          );
+          for (const section of degradedSections) {
+            const match = sectionMatches.find(
+              (candidate) => candidate.sectionId === section.section_id,
+            );
+            if (!match) {
+              continue;
+            }
+            match.humanDescription = buildLlmUnavailableExplanation(
+              "The section was compared with the vision model, but it did not return a section-specific explanation.",
+            );
+            match.explanationConfidence = null;
+            match.explanationSource = "fallback_generic";
+          }
+        }
+      } catch (error) {
+        console.warn(`Section explanation agent failed: ${error}`);
+        for (const match of sectionMatches) {
+          if (match.status === "missing") {
+            continue;
+          }
+          match.humanDescription = buildLlmUnavailableExplanation(
+            "The section was compared with the vision model, but the LLM explanation step failed.",
+          );
+          match.explanationConfidence = null;
+          match.explanationSource = "fallback_error";
+        }
+      }
+    }
+  } else {
+    console.log("Skipping section explanation agent because OPENAI_API_KEY is not set.");
+    for (const match of sectionMatches) {
+      if (match.status === "missing") {
+        continue;
+      }
+      match.humanDescription = buildLlmUnavailableExplanation(
+        "The section was compared with the vision model, but OPENAI_API_KEY is not set so no LLM explanation was generated.",
+      );
+      match.explanationConfidence = null;
+      match.explanationSource = "fallback_no_key";
+    }
+  }
+
+  const sectionResults: SectionVisualResult[] = sectionMatches.map((match) => {
+    const artifacts = sectionArtifacts.get(match.sectionId);
+    return {
       section_id: match.sectionId,
       name: match.name,
       status: match.status,
@@ -221,18 +344,20 @@ export async function performImageComparison(
         final_similarity_score: match.signals.finalSimilarityScore,
       },
       description: match.humanDescription,
-      image_refs:
-        previewSectionPath && sectionDiffPath
-          ? {
-              base: baseSectionPath,
-              preview: previewSectionPath,
-              diff: sectionDiffPath,
-            }
-          : null,
-    });
-  }
+      explanation: match.humanDescription,
+      explanation_confidence: match.explanationConfidence,
+      explanation_source: match.explanationSource,
+      image_refs: artifacts
+        ? {
+            base: artifacts.base,
+            preview: artifacts.preview,
+            diff: artifacts.diff,
+          }
+        : null,
+    };
+  });
 
-  console.log("\n🧠 Step 9: Building deterministic report...");
+  console.log("\n🧠 Step 10: Building deterministic report...");
   const visualAnalysis = buildImageModeVisualAnalysis({
     baseUrl: baseImageUrl,
     previewUrl,

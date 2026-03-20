@@ -74,6 +74,14 @@ export interface SectionVisualResult {
   similarity_score: number;
   signals: SectionSignalsReport;
   description: string;
+  explanation: string;
+  explanation_confidence: number | null;
+  explanation_source:
+    | "llm"
+    | "deterministic_fallback"
+    | "fallback_no_key"
+    | "fallback_error"
+    | "fallback_generic";
   image_refs: SectionImageReferences | null;
 }
 

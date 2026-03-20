@@ -47,6 +47,15 @@ export function buildImageModeVisualAnalysis(
         : "pass";
 
   const metadata = generateMetadata();
+  const orderedHighlights = [...missingSections, ...problematicSections]
+    .sort((a, b) => {
+      if (a.status !== b.status) {
+        return a.status === "missing" ? -1 : 1;
+      }
+
+      return a.similarityScore - b.similarityScore;
+    })
+    .slice(0, 5);
 
   return validateAndFixEnums({
     id: metadata.id,
@@ -83,7 +92,7 @@ export function buildImageModeVisualAnalysis(
           : "none",
     },
     visual_changes: {
-      diff_highlights: [...problematicSections, ...missingSections].map(
+      diff_highlights: orderedHighlights.map(
         (section) => `${section.name}: ${section.humanDescription}`,
       ),
       animation_issues: "No animation analysis in deterministic image mode.",

@@ -2,6 +2,7 @@ export {
   analyzeImagesWithVision,
   analyzeImagesWithVisionImageMode,
 } from "./vision.js";
+export { analyzeSectionDiffExplanationsAgent } from "./agents.js";
 export type {
   VisualAnalysisResult,
   AnalyzeImagesInput,
@@ -10,8 +11,12 @@ export type {
   StructuralAnalysis,
   VisualChanges,
   Conclusion,
+  SectionDiffExplanation,
+  SectionDiffExplanations,
 } from "./types.js";
 export {
   VisualAnalysisResultSchema,
   AnalyzeImagesInputSchema,
+  SectionDiffExplanationSchema,
+  SectionDiffExplanationsSchema,
 } from "./types.js";

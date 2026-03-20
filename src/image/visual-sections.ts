@@ -77,6 +77,13 @@ export interface VisualSectionMatch {
   similarityScore: number;
   signals: VisualSectionSignals;
   humanDescription: string;
+  explanationConfidence: number | null;
+  explanationSource:
+    | "llm"
+    | "deterministic_fallback"
+    | "fallback_no_key"
+    | "fallback_error"
+    | "fallback_generic";
   status: "matched" | "problematic" | "missing";
 }
 
@@ -1429,6 +1436,8 @@ export async function matchVisualSections(
           },
           clamp(best.score, 0, 1),
         ),
+        explanationConfidence: null,
+        explanationSource: "deterministic_fallback",
         status: "missing",
       });
       continue;
@@ -1508,6 +1517,8 @@ export async function matchVisualSections(
       similarityScore: clamp(similarityScore, 0, 1),
       signals: finalSignals,
       humanDescription,
+      explanationConfidence: null,
+      explanationSource: "deterministic_fallback",
       status,
     });
   }
@@ -1557,6 +1568,12 @@ export function formatMatchedSectionsAsAnalysis(
     output += `   - Edge Difference: ${match.signals.edgeDifference.toFixed(3)}\n`;
     output += `   - Structural Similarity: ${match.signals.structuralSimilarity.toFixed(3)}\n`;
     output += `   - Status: ${match.status}\n`;
+    output += `   - Explanation Source: ${match.explanationSource}\n`;
+    output += `   - Explanation Confidence: ${
+      match.explanationConfidence == null
+        ? "n/a"
+        : match.explanationConfidence.toFixed(3)
+    }\n`;
     output += `   - Description: ${match.humanDescription}\n`;
     output += `   - Detection Notes: ${match.description}\n\n`;
   });
