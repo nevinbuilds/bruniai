@@ -246,7 +246,6 @@ export async function performImageComparison(
     if (explainableSections.length > 0) {
       try {
         const explanations = await analyzeSectionDiffExplanationsAgent(
-          stagehand,
           explainableSections,
           baseImageUrl,
           previewUrl,

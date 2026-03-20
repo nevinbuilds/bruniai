@@ -1,4 +1,5 @@
 import { Stagehand } from "@browserbasehq/stagehand";
+import OpenAI from "openai";
 import {
   BaseUrlAnalysisResultSchema,
   PreviewUrlAnalysisResultSchema,
@@ -11,11 +12,10 @@ import {
 } from "./types.js";
 import {
   createImageComparisonHtml,
-  createSectionDiffReviewHtml,
   type SectionDiffReviewCard,
 } from "./utils.js";
 import { extractJsonFromResponse } from "../utils/json.js";
-import { writeFileSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
@@ -405,7 +405,6 @@ export async function analyzeImagesAgent(
 }
 
 export async function analyzeSectionDiffExplanationsAgent(
-  stagehand: Stagehand,
   cards: AnalyzeSectionDiffExplanationsInput[],
   base_url: string,
   preview_url: string,
@@ -418,91 +417,87 @@ export async function analyzeSectionDiffExplanationsAgent(
     `\n${"=".repeat(50)}\n🔍 Agent 4: Explaining Problematic Sections\n${"=".repeat(50)}`,
   );
 
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
   const explanations: SectionDiffExplanation[] = [];
 
   for (const card of cards) {
-    const reviewHtml = createSectionDiffReviewHtml([card], base_url, preview_url);
-    const uniqueId = uuidv4();
-    const tempHtmlPath = join(
-      __dirname,
-      "..",
-      "..",
-      `temp-section-diff-review-${uniqueId}.html`,
-    );
-    writeFileSync(tempHtmlPath, reviewHtml, "utf-8");
-
-    let page: Awaited<ReturnType<Stagehand["context"]["newPage"]>> | null = null;
-
     try {
-      page = await stagehand.context.newPage();
-      await page.goto(`file://${tempHtmlPath}`, {
-        waitUntil: "networkidle",
-        timeoutMs: 30000,
+      const baseImage = readFileSync(card.base_screenshot).toString("base64");
+      const previewImage = readFileSync(card.preview_screenshot).toString("base64");
+      const diffImage = readFileSync(card.diff_image).toString("base64");
+      const response = await client.responses.create({
+        model: "gpt-5-mini",
+        input: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: "You are an expert visual UI reviewer. Compare one design crop, one webpage crop, and one diff image. Return valid JSON only.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Review this single section comparison from ${base_url} to ${preview_url}.
+
+Section name: ${card.name}
+Section id: ${card.section_id}
+Match score: ${card.match_score.toFixed(3)}
+Final similarity score: ${card.final_similarity_score.toFixed(3)}
+Pixel difference: ${card.pixel_difference.toFixed(3)}
+Edge difference: ${card.edge_difference.toFixed(3)}
+Structural similarity: ${card.structural_similarity.toFixed(3)}
+
+Write a human-readable explanation of what is visibly different in this section.
+
+Rules:
+- Do not decide whether the section matched; that was already determined.
+- Mention at least one concrete visible element or property such as a heading, card, image, icon, button, text block, spacing, padding, alignment, border, background, column layout, or text wrapping.
+- If the section looks visually close, say that and mention any minor visible deviation.
+- If the crop looks ambiguous or weakly matched, say that clearly.
+- Keep the explanation to 1 or 2 sentences.
+- Do not use generic phrases like "overall layout structure differs", "a corresponding webpage region was found", or "the section differs materially from the design" unless you also name specific visible changes.
+- explanation_confidence must be between 0 and 1.
+
+Return ONLY JSON in this exact format:
+{
+  "sections": [
+    {
+      "section_id": "${card.section_id}",
+      "explanation": "Concrete explanation of the visible difference.",
+      "explanation_confidence": 0.84
+    }
+  ]
+}`,
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/png;base64,${baseImage}`,
+                detail: "high",
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/png;base64,${previewImage}`,
+                detail: "high",
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/png;base64,${diffImage}`,
+                detail: "high",
+              },
+            ],
+          },
+        ],
       });
 
-      const agent = stagehand.agent(({
-        model: "openai/gpt-5-mini",
-        // Stagehand defaults temperature for agent calls; null disables that for reasoning models.
-        temperature: null,
-        systemPrompt:
-          "You are an expert visual UI reviewer. Compare the design crop, webpage crop, and diff image for one section. Return valid JSON only.",
-      } as unknown) as Parameters<typeof stagehand.agent>[0]);
-
-      const instruction = `
-        You are reviewing exactly one section card on this page.
-
-        The card contains:
-        - the design section image
-        - the webpage section image
-        - the diff image
-        - deterministic metrics
-
-        Write a human-readable explanation of what is visibly different in this section.
-
-        Rules:
-        - Do not decide whether the section matched; that was already determined.
-        - Mention at least one concrete visible element or property such as a heading, card, image, icon, button, text block, spacing, padding, alignment, border, background, column layout, or text wrapping.
-        - If the section looks visually close, say that and mention any minor visible deviation.
-        - If the crop looks ambiguous or weakly matched, say that clearly.
-        - Keep the explanation to 1 or 2 sentences.
-        - Do not use generic phrases like "overall layout structure differs", "a corresponding webpage region was found", or "the section differs materially from the design" unless you also name specific visible changes.
-        - explanation_confidence must be between 0 and 1.
-
-        Return ONLY JSON in this exact format:
-        {
-          "sections": [
-            {
-              "section_id": "${card.section_id}",
-              "explanation": "Concrete explanation of the visible difference.",
-              "explanation_confidence": 0.84
-            }
-          ]
-        }
-      `;
-
-      const resultAgent = await agent.execute({
-        instruction,
-        maxSteps: 10,
-        highlightCursor: true,
-      });
-
-      let agentResponse = "";
-      if (typeof resultAgent === "string") {
-        agentResponse = resultAgent;
-      } else if (resultAgent && typeof resultAgent === "object") {
-        agentResponse =
-          (resultAgent as any).message ||
-          (resultAgent as any).response ||
-          (resultAgent as any).text ||
-          JSON.stringify(resultAgent);
-      } else {
-        agentResponse = String(resultAgent);
-      }
-
-      const jsonString =
-        extractJsonFromResponse(agentResponse) ?? agentResponse.trim();
+      const agentResponse = response.output_text || "";
+      const jsonString = extractJsonFromResponse(agentResponse) ?? agentResponse.trim();
       const parsedJson = JSON.parse(jsonString);
       const result = SectionDiffExplanationsSchema.parse(parsedJson);
       const explanation = result.sections.find(
@@ -516,19 +511,8 @@ export async function analyzeSectionDiffExplanationsAgent(
           `Section explanation for ${card.section_id} was too generic or missing in model output.`,
         );
       }
-    } finally {
-      try {
-        if (page) {
-          await page.close();
-        }
-      } catch (closeError) {
-        console.warn(`Warning: Could not close section review page: ${closeError}`);
-      }
-      try {
-        unlinkSync(tempHtmlPath);
-      } catch (cleanupError) {
-        console.warn(`Warning: Could not delete temporary file: ${cleanupError}`);
-      }
+    } catch (error) {
+      console.warn(`Section explanation request failed for ${card.section_id}: ${error}`);
     }
   }
 

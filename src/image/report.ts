@@ -47,14 +47,11 @@ export function buildImageModeVisualAnalysis(
         : "pass";
 
   const metadata = generateMetadata();
-  const orderedHighlights = [...missingSections, ...problematicSections]
-    .sort((a, b) => {
-      if (a.status !== b.status) {
-        return a.status === "missing" ? -1 : 1;
-      }
-
-      return a.similarityScore - b.similarityScore;
-    })
+  const orderedHighlights = sectionMatches
+    .filter(
+      (section) =>
+        section.status === "missing" || section.status === "problematic",
+    )
     .slice(0, 5);
 
   return validateAndFixEnums({
