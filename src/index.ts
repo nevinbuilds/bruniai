@@ -249,10 +249,10 @@ async function main() {
           > | null;
         };
       }> = [];
-      const maxSectionScreenshots = parseInt(
-        process.env.BRUNI_MAX_SECTION_SCREENSHOTS || "6",
-        10
-      );
+      const maxSectionScreenshotsEnv = process.env.BRUNI_MAX_SECTION_SCREENSHOTS;
+      const maxSectionScreenshots = maxSectionScreenshotsEnv
+        ? parseInt(maxSectionScreenshotsEnv, 10)
+        : Number.POSITIVE_INFINITY;
 
       for (let i = 0; i < allAnalyses.length; i++) {
         const pageAnalysis = allAnalyses[i];
@@ -302,7 +302,7 @@ async function main() {
           for (const [sectionId, screenshots] of Object.entries(
             pageResult.section_screenshots
           )) {
-            if (idx >= maxSectionScreenshots) {
+            if (Number.isFinite(maxSectionScreenshots) && idx >= maxSectionScreenshots) {
               console.log(
                 `Limiting section screenshots to ${maxSectionScreenshots} to reduce payload size.`
               );

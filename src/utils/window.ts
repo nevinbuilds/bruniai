@@ -139,7 +139,20 @@ export async function waitForImagesInViewport(
         if (!visible.length) return true;
 
         return visible.every(
-          (img) => img.complete && typeof img.naturalHeight === "number" && img.naturalHeight > 0
+          (img) => {
+            const imageSrc = String(img.currentSrc || img.src || "").toLowerCase();
+            const looksLikePlaceholder =
+              imageSrc.includes("/placeholder.svg") ||
+              imageSrc.includes("placeholder.svg?") ||
+              imageSrc.includes("%2fplaceholder.svg");
+
+            return (
+              img.complete &&
+              typeof img.naturalHeight === "number" &&
+              img.naturalHeight > 0 &&
+              !looksLikePlaceholder
+            );
+          }
         );
       },
       { timeout: timeoutMs }
@@ -170,4 +183,3 @@ export async function ensurePageFullyRendered(
   await scrollPageToBottom(page, step, delay);
   await waitForImagesInViewport(page, imgTimeout);
 }
-
