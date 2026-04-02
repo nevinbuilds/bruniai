@@ -1,9 +1,18 @@
 import { Stagehand } from "@browserbasehq/stagehand";
-import { performComparison } from "../../../dist/comparison/core.js";
 import type { CompareUrlsInput, CompareUrlsOutput } from "./types.js";
 import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
+
+type ComparisonCoreModule = typeof import("../../../src/comparison/core.js");
+
+async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
+  try {
+    return await import("../../../dist/comparison/core.js");
+  } catch {
+    return await import("../../../src/comparison/core.js");
+  }
+}
 
 /**
  * Compare two URLs visually and return analysis results.
@@ -34,6 +43,7 @@ export async function compareUrls(
   input: CompareUrlsInput
 ): Promise<CompareUrlsOutput> {
   const { baseUrl, previewUrl, page = "/" } = input;
+  const { performComparison } = await loadComparisonCoreModule();
 
   // Create temporary directory for images.
   const imagesDir = join(tmpdir(), `bruniai-${Date.now()}`);

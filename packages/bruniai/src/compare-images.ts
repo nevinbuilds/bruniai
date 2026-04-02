@@ -1,4 +1,3 @@
-import { performImageToImageComparison } from "../../../dist/comparison/image-image-core.js";
 import type {
   CompareImagesInput,
   CompareImagesOutput,
@@ -6,6 +5,16 @@ import type {
 import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
+
+type ImageToImageComparisonModule = typeof import("../../../src/comparison/image-image-core.js");
+
+async function loadImageToImageComparisonModule(): Promise<ImageToImageComparisonModule> {
+  try {
+    return await import("../../../dist/comparison/image-image-core.js");
+  } catch {
+    return await import("../../../src/comparison/image-image-core.js");
+  }
+}
 
 function isSupportedImageInput(input: string): boolean {
   if (!input) {
@@ -49,6 +58,8 @@ export async function compareImages(
   input: CompareImagesInput,
 ): Promise<CompareImagesOutput> {
   const { baseImage, previewImage } = input;
+  const { performImageToImageComparison } =
+    await loadImageToImageComparisonModule();
 
   assertSupportedImageInput(baseImage, "baseImage");
   assertSupportedImageInput(previewImage, "previewImage");
