@@ -4,13 +4,22 @@ import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
 
-type ComparisonCoreModule = typeof import("../../../src/comparison/core.js");
+type ComparisonCoreModule = typeof import("../../../dist/comparison/core.js");
+
+async function importRuntimeModule<T>(modulePath: string): Promise<T> {
+  return (await new Function(
+    "modulePath",
+    "return import(modulePath);",
+  )(modulePath)) as T;
+}
 
 async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
   try {
     return await import("../../../dist/comparison/core.js");
   } catch {
-    return await import("../../../src/comparison/core.js");
+    return await importRuntimeModule<ComparisonCoreModule>(
+      "../../../src/comparison/core.js",
+    );
   }
 }
 

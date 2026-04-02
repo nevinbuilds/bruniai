@@ -6,13 +6,23 @@ import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
 
-type ImageToImageComparisonModule = typeof import("../../../src/comparison/image-image-core.js");
+type ImageToImageComparisonModule =
+  typeof import("../../../dist/comparison/image-image-core.js");
+
+async function importRuntimeModule<T>(modulePath: string): Promise<T> {
+  return (await new Function(
+    "modulePath",
+    "return import(modulePath);",
+  )(modulePath)) as T;
+}
 
 async function loadImageToImageComparisonModule(): Promise<ImageToImageComparisonModule> {
   try {
     return await import("../../../dist/comparison/image-image-core.js");
   } catch {
-    return await import("../../../src/comparison/image-image-core.js");
+    return await importRuntimeModule<ImageToImageComparisonModule>(
+      "../../../src/comparison/image-image-core.js",
+    );
   }
 }
 

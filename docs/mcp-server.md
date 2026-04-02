@@ -59,6 +59,11 @@ The MCP server requires the following environment variable:
 
 - `OPENAI_API_KEY` (required): Your OpenAI API key for GPT-4 Vision analysis
 
+For remote HTTP deployment, also configure:
+
+- `MCP_BEARER_TOKEN` (required): bearer token for private MCP access
+- `MCP_ALLOWED_ORIGINS` (optional): comma-separated list of allowed `Origin` values
+
 Set it before running the server:
 
 ```bash
@@ -92,6 +97,24 @@ Add the following to your MCP configuration:
 ## Usage
 
 Once configured, the `compare_urls` and `compare_images` tools will be available in Cursor. You can invoke them through natural language or direct tool calls.
+
+## Remote HTTP Deployment
+
+This repository now includes a dedicated Vercel app at
+[`apps/mcp-vercel`](../apps/mcp-vercel/README.md) for hosting the MCP server
+at a URL such as `https://mcp.brunivisual.com/mcp`.
+
+Under the hood, that Next.js app uses Node API routes instead of App Router
+route handlers because the current MCP SDK Streamable HTTP transport expects
+Node `IncomingMessage` and `ServerResponse` objects.
+
+Recommended Vercel setup:
+
+1. Create a separate Vercel project for this repository.
+2. Set the project root directory to `apps/mcp-vercel`.
+3. Configure `OPENAI_API_KEY`, `MCP_BEARER_TOKEN`, and `MCP_ALLOWED_ORIGINS`.
+4. Add the custom domain `mcp.brunivisual.com`.
+5. Point MCP clients at `https://mcp.brunivisual.com/mcp`.
 
 ### Tool Schema
 

@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "pages/api/mcp.ts": {
+      "maxDuration": 300
+    },
+    "pages/api/healthz.ts": {
+      "maxDuration": 10
+    }
+  }
+}
