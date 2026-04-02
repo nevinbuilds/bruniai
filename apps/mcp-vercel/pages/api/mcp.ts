@@ -2,8 +2,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import {
   createHttpMcpHandler,
   getHttpMcpConfigFromEnv,
-} from "../../../../packages/mcp-server/src/http-handler.js";
-import { nextComparisonService } from "../../lib/comparison-service.js";
+} from "../../../../packages/mcp-server/src/http-handler";
+import { nextComparisonService } from "../../lib/comparison-service";
 
 const handler = createHttpMcpHandler(
   getHttpMcpConfigFromEnv(nextComparisonService),

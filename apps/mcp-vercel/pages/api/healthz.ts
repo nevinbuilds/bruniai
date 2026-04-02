@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { handleHealthCheck } from "../../../../packages/mcp-server/src/health-handler.js";
+import { handleHealthCheck } from "../../../../packages/mcp-server/src/health-handler";
 
 export default function healthRoute(
   req: NextApiRequest,
