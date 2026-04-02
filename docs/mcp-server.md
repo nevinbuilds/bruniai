@@ -4,13 +4,22 @@ The BruniAI MCP (Model Context Protocol) server exposes visual comparison functi
 
 ## Overview
 
-The MCP server provides a single tool `compare_urls` that performs comprehensive visual analysis between two URLs:
+The MCP server provides two tools:
 
-- Takes full-page screenshots of both URLs
+- `compare_urls` for comprehensive visual analysis between two URLs
+- `compare_images` for comprehensive visual analysis between two images
+
+Shared capabilities:
+
+- Normalizes inputs into comparable images
 - Generates diff images highlighting differences
-- Analyzes page structure and sections
-- Performs AI-powered visual analysis
+- Analyzes sections and layout changes
 - Returns structured results with image file paths
+
+Tool-specific behavior:
+
+- `compare_urls` captures full-page screenshots from the two URLs before analysis
+- `compare_images` compares the two provided image inputs directly
 
 ## Installation
 
@@ -82,7 +91,7 @@ Add the following to your MCP configuration:
 
 ## Usage
 
-Once configured, the `compare_urls` tool will be available in Cursor. You can invoke it through natural language or direct tool calls.
+Once configured, the `compare_urls` and `compare_images` tools will be available in Cursor. You can invoke them through natural language or direct tool calls.
 
 ### Tool Schema
 
@@ -148,6 +157,15 @@ The tool returns a JSON object with the following structure:
 }
 ```
 
+**Name**: `compare_images`
+
+**Description**: Compare two images visually and analyze differences. Normalizes the image inputs, generates diff images, analyzes sections, and returns analysis results with paths to generated images.
+
+**Input Parameters**:
+
+- `baseImage` (string, required): Base/reference image as an HTTP(S) URL or `data:image/...`
+- `previewImage` (string, required): Preview/changed image as an HTTP(S) URL or `data:image/...`
+
 ### Example Usage in Cursor
 
 You can ask Cursor to compare URLs:
@@ -156,6 +174,12 @@ Or be more specific:
 
 ```
 For my website  https://www.example.com I have changes in this preview site https://company-example.vercel.app use the bruniai-mcp-server to compare the page : /contact
+```
+
+For images:
+
+```text
+Use bruniai-mcp-server compare_images to compare this design image https://example.com/design.png against this uploaded data URL image.
 ```
 
 ## How It Works

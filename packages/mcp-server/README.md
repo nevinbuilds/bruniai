@@ -4,6 +4,11 @@ MCP (Model Context Protocol) server for BruniAI visual comparison functionality.
 
 This package exposes visual comparison tools that can be used within Cursor and other MCP-compatible applications. It depends on the `bruniai` core package for comparison functionality.
 
+Available tools:
+
+- `compare_urls`: URL-to-URL visual comparison
+- `compare_images`: Image-to-image visual comparison using HTTP(S) URLs or `data:image/...` inputs
+
 ## Installation
 
 ```bash
@@ -65,4 +70,3 @@ See [../../docs/mcp-server.md](../../docs/mcp-server.md) for complete documentat
 ## Related Packages
 
 - [`bruniai`](../bruniai/README.md) - Core comparison library used by this MCP server
-

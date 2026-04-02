@@ -13,7 +13,7 @@ npm install bruniai
 ## Usage
 
 ```typescript
-import { compareUrls } from "bruniai";
+import { compareImages, compareUrls } from "bruniai";
 
 const result = await compareUrls({
   baseUrl: "https://example.com",
@@ -24,6 +24,13 @@ const result = await compareUrls({
 console.log(result.status); // "pass" | "fail" | "warning"
 console.log(result.visual_analysis);
 console.log(result.images.base_screenshot);
+
+const imageResult = await compareImages({
+  baseImage: "https://example.com/design.png",
+  previewImage: "data:image/png;base64,...",
+});
+
+console.log(imageResult.status);
 ```
 
 ## API
@@ -46,6 +53,22 @@ Performs a visual comparison between two URLs.
 - `visual_analysis`: Detailed visual analysis result from AI
 - `sections_analysis`: Formatted sections analysis text
 - `images`: Object containing paths to generated screenshots and diff images
+
+### `compareImages(input: CompareImagesInput): Promise<CompareImagesOutput>`
+
+Performs a visual comparison between two images.
+
+**Parameters:**
+
+- `baseImage` (string): Base/reference image as an HTTP(S) URL or `data:image/...`
+- `previewImage` (string): Preview/changed image as an HTTP(S) URL or `data:image/...`
+
+**Returns:**
+
+- `status`: Overall comparison status ("pass" | "fail" | "warning" | "none")
+- `visual_analysis`: Detailed visual analysis result from AI
+- `sections_analysis`: Formatted sections analysis text
+- `images`: Object containing paths to normalized images and diff images
 
 ## Requirements
 
