@@ -1,26 +1,31 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import type { CompareUrlsInput, CompareUrlsOutput } from "./types.js";
 import { join } from "path";
+import { fileURLToPath } from "url";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
 
 type ComparisonCoreModule = typeof import("../../../dist/comparison/core.js");
 
-async function importRuntimeModule<T>(modulePath: string): Promise<T> {
-  return (await new Function(
-    "modulePath",
-    "return import(modulePath);",
-  )(modulePath)) as T;
+async function importRuntimeModule<T>(relativePath: string): Promise<T> {
+  const modulePath = fileURLToPath(new URL(relativePath, import.meta.url));
+  return (await import(modulePath)) as T;
 }
 
 async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
-  try {
-    return await import("../../../dist/comparison/core.js");
-  } catch {
+  const distModulePath = fileURLToPath(
+    new URL("../../../dist/comparison/core.js", import.meta.url),
+  );
+
+  if (existsSync(distModulePath)) {
     return await importRuntimeModule<ComparisonCoreModule>(
-      "../../../src/comparison/core.js",
+      "../../../dist/comparison/core.js",
     );
   }
+
+  return await importRuntimeModule<ComparisonCoreModule>(
+    "../../../src/comparison/core.js",
+  );
 }
 
 /**

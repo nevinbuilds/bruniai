@@ -3,27 +3,32 @@ import type {
   CompareImagesOutput,
 } from "./types.js";
 import { join } from "path";
+import { fileURLToPath } from "url";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
 
 type ImageToImageComparisonModule =
   typeof import("../../../dist/comparison/image-image-core.js");
 
-async function importRuntimeModule<T>(modulePath: string): Promise<T> {
-  return (await new Function(
-    "modulePath",
-    "return import(modulePath);",
-  )(modulePath)) as T;
+async function importRuntimeModule<T>(relativePath: string): Promise<T> {
+  const modulePath = fileURLToPath(new URL(relativePath, import.meta.url));
+  return (await import(modulePath)) as T;
 }
 
 async function loadImageToImageComparisonModule(): Promise<ImageToImageComparisonModule> {
-  try {
-    return await import("../../../dist/comparison/image-image-core.js");
-  } catch {
+  const distModulePath = fileURLToPath(
+    new URL("../../../dist/comparison/image-image-core.js", import.meta.url),
+  );
+
+  if (existsSync(distModulePath)) {
     return await importRuntimeModule<ImageToImageComparisonModule>(
-      "../../../src/comparison/image-image-core.js",
+      "../../../dist/comparison/image-image-core.js",
     );
   }
+
+  return await importRuntimeModule<ImageToImageComparisonModule>(
+    "../../../src/comparison/image-image-core.js",
+  );
 }
 
 function isSupportedImageInput(input: string): boolean {
@@ -68,11 +73,12 @@ export async function compareImages(
   input: CompareImagesInput,
 ): Promise<CompareImagesOutput> {
   const { baseImage, previewImage } = input;
-  const { performImageToImageComparison } =
-    await loadImageToImageComparisonModule();
 
   assertSupportedImageInput(baseImage, "baseImage");
   assertSupportedImageInput(previewImage, "previewImage");
+
+  const { performImageToImageComparison } =
+    await loadImageToImageComparisonModule();
 
   const imagesDir = join(tmpdir(), `bruniai-${Date.now()}`);
   if (!existsSync(imagesDir)) {
