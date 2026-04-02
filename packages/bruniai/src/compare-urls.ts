@@ -13,19 +13,15 @@ async function importRuntimeModule<T>(relativePath: string): Promise<T> {
 }
 
 async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
-  const distModulePath = fileURLToPath(
-    new URL("../../../dist/comparison/core.js", import.meta.url),
-  );
-
-  if (existsSync(distModulePath)) {
+  try {
     return await importRuntimeModule<ComparisonCoreModule>(
       "../../../dist/comparison/core.js",
     );
+  } catch {
+    return await importRuntimeModule<ComparisonCoreModule>(
+      "../../../src/comparison/core.js",
+    );
   }
-
-  return await importRuntimeModule<ComparisonCoreModule>(
-    "../../../src/comparison/core.js",
-  );
 }
 
 /**

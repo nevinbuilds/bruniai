@@ -16,19 +16,15 @@ async function importRuntimeModule<T>(relativePath: string): Promise<T> {
 }
 
 async function loadImageToImageComparisonModule(): Promise<ImageToImageComparisonModule> {
-  const distModulePath = fileURLToPath(
-    new URL("../../../dist/comparison/image-image-core.js", import.meta.url),
-  );
-
-  if (existsSync(distModulePath)) {
+  try {
     return await importRuntimeModule<ImageToImageComparisonModule>(
       "../../../dist/comparison/image-image-core.js",
     );
+  } catch {
+    return await importRuntimeModule<ImageToImageComparisonModule>(
+      "../../../src/comparison/image-image-core.js",
+    );
   }
-
-  return await importRuntimeModule<ImageToImageComparisonModule>(
-    "../../../src/comparison/image-image-core.js",
-  );
 }
 
 function isSupportedImageInput(input: string): boolean {

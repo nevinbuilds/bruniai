@@ -1,6 +1,14 @@
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "url";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      bruniai: fileURLToPath(
+        new URL("./packages/bruniai/src/index.ts", import.meta.url),
+      ),
+    },
+  },
   test: {
     globals: true,
     environment: "node",
