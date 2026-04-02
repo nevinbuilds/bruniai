@@ -5,11 +5,19 @@
   "description": "MCP server for BruniAI visual comparison functionality",
   "author": "Joao Garin",
   "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "bin": {
     "bruniai-mcp-server": "./dist/mcp-server.js"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
-    "build": "tsc",
+    "build": "npm --prefix ../bruniai run build && tsc",
     "dev": "tsx src/mcp-server.ts"
   },
   "dependencies": {

@@ -14,6 +14,14 @@ images/
 # TypeScript/Bun build outputs
 dist/
 *.tsbuildinfo
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
 
 # testing
 /coverage

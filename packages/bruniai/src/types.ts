@@ -18,6 +18,16 @@ export interface CompareUrlsInput {
 }
 
 /**
+ * Input parameters for compareImages function.
+ */
+export interface CompareImagesInput {
+  /** Base/reference image to compare against. Accepts HTTP(S) URLs or data URLs. */
+  baseImage: string;
+  /** Preview/changed image to analyze. Accepts HTTP(S) URLs or data URLs. */
+  previewImage: string;
+}
+
+/**
  * Image paths returned from comparison.
  */
 export interface ComparisonImages {
@@ -44,3 +54,8 @@ export interface CompareUrlsOutput {
   /** Generated images from comparison. */
   images: ComparisonImages;
 }
+
+/**
+ * Output structure for compareImages function.
+ */
+export type CompareImagesOutput = CompareUrlsOutput;

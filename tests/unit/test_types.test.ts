@@ -24,6 +24,7 @@ import type {
   VisualChanges,
   Conclusion,
   ImageReferences,
+  ComparisonMode,
 } from "../../src/reporter/types.js";
 
 describe("Type definitions", () => {
@@ -182,6 +183,25 @@ describe("Type definitions", () => {
       expect(refs.base_screenshot).toBe("base64_encoded_image_1");
       expect(refs.pr_screenshot).toBe("base64_encoded_image_2");
       expect(refs.diff_image).toBe("base64_encoded_image_3");
+    });
+  });
+
+  describe("ComparisonMode", () => {
+    it("should accept valid comparison modes", () => {
+      const validModes: ComparisonMode[] = [
+        "url-to-url",
+        "image-to-url",
+        "image-to-image",
+      ];
+
+      for (const mode of validModes) {
+        expect(typeof mode).toBe("string");
+        expect([
+          "url-to-url",
+          "image-to-url",
+          "image-to-image",
+        ]).toContain(mode);
+      }
     });
   });
 });

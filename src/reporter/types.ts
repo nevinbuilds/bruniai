@@ -6,7 +6,7 @@ export type ReportStatus = "pass" | "fail" | "warning";
 export type CriticalIssuesStatus = "none" | "missing_sections" | "other_issues";
 export type VisualChangesStatus = "none" | "minor" | "significant";
 export type RecommendationStatus = "pass" | "review_required" | "reject";
-export type ComparisonMode = "url-to-url" | "image-to-url";
+export type ComparisonMode = "url-to-url" | "image-to-url" | "image-to-image";
 
 export interface SectionInfo {
   name: string;

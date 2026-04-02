@@ -4,6 +4,27 @@ MCP (Model Context Protocol) server for BruniAI visual comparison functionality.
 
 This package exposes visual comparison tools that can be used within Cursor and other MCP-compatible applications. It depends on the `bruniai` core package for comparison functionality.
 
+Available tools:
+
+- `compare_urls`: URL-to-URL visual comparison
+- `compare_images`: Image-to-image visual comparison using HTTP(S) URLs or `data:image/...` inputs
+
+## Remote Deployment
+
+This repository also includes a dedicated Vercel deployment app in
+[`apps/mcp-vercel`](../../apps/mcp-vercel/README.md).
+
+That app exposes:
+
+- `GET/POST /mcp` for private Streamable HTTP MCP
+- `GET /healthz` for readiness checks
+
+Required environment variables:
+
+- `OPENAI_API_KEY`
+- `MCP_BEARER_TOKEN`
+- `MCP_ALLOWED_ORIGINS`
+
 ## Installation
 
 ```bash
@@ -65,4 +86,3 @@ See [../../docs/mcp-server.md](../../docs/mcp-server.md) for complete documentat
 ## Related Packages
 
 - [`bruniai`](../bruniai/README.md) - Core comparison library used by this MCP server
-
