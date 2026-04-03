@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import {
   createHttpMcpHandler,
   getHttpMcpConfigFromEnv,
-} from "../../../../packages/mcp-server/src/http-handler";
+} from "bruniai-mcp-server";
 import { nextComparisonService } from "../../lib/comparison-service";
 
 const handler = createHttpMcpHandler(

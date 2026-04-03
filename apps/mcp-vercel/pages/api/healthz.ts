@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { handleHealthCheck } from "../../../../packages/mcp-server/src/health-handler";
+import { handleHealthCheck } from "bruniai-mcp-server";
 
 export default function healthRoute(
   req: NextApiRequest,
