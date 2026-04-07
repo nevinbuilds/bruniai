@@ -1,6 +1,6 @@
 {
   "name": "bruniai",
-  "version": "0.1.7",
+  "version": "0.1.10",
   "type": "module",
   "description": "AI-powered visual regression testing tool - core comparison library",
   "author": "Joao Garin",
@@ -18,7 +18,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm --prefix ../.. run build && tsc && node ./scripts/prepare-runtime.mjs",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
