@@ -80,6 +80,11 @@ describe("MCP server", () => {
       },
     } as any);
 
+    const { setBruniaiModuleLoaderForTests } = await import(
+      "../../packages/mcp-server/src/bruniai-service.ts"
+    );
+    setBruniaiModuleLoaderForTests(async () => bruniai as any);
+
     const { createServer } = await import(
       "../../packages/mcp-server/src/mcp-server.ts"
     );
@@ -103,6 +108,7 @@ describe("MCP server", () => {
       sectionExplanationMode: "off",
     });
     expect(response.isError).toBeUndefined();
+    setBruniaiModuleLoaderForTests(null);
   });
 
   it("registers sectionExplanationMode in both tool schemas", async () => {
