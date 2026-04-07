@@ -9,10 +9,23 @@ import { tmpdir } from "os";
 type ImageToImageComparisonModule =
   typeof import("../../../dist/comparison/image-image-core.js");
 
-const imageToImageComparisonModulePromise: Promise<ImageToImageComparisonModule> =
-  import.meta.url.includes("/packages/bruniai/src/")
-    ? import("../../../dist/comparison/image-image-core.js")
-    : import("./runtime/comparison/image-image-core.js");
+async function importSourceModule<T>(relativePath: string): Promise<T> {
+  return (await import(new URL(relativePath, import.meta.url).href)) as T;
+}
+
+async function loadImageToImageComparisonModule(): Promise<ImageToImageComparisonModule> {
+  if (import.meta.url.includes("/packages/bruniai/src/")) {
+    try {
+      return await import("../../../dist/comparison/image-image-core.js");
+    } catch {
+      return await importSourceModule<ImageToImageComparisonModule>(
+        "../../../src/comparison/image-image-core.ts",
+      );
+    }
+  }
+
+  return await import("./runtime/comparison/image-image-core.js");
+}
 
 function isSupportedImageInput(input: string): boolean {
   if (!input) {
@@ -60,7 +73,7 @@ export async function compareImages(
   assertSupportedImageInput(baseImage, "baseImage");
   assertSupportedImageInput(previewImage, "previewImage");
   const { performImageToImageComparison } =
-    await imageToImageComparisonModulePromise;
+    await loadImageToImageComparisonModule();
 
   const imagesDir = join(tmpdir(), `bruniai-${Date.now()}`);
   if (!existsSync(imagesDir)) {

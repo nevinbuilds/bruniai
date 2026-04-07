@@ -6,10 +6,23 @@ import { tmpdir } from "os";
 
 type ComparisonCoreModule = typeof import("../../../dist/comparison/core.js");
 
-const comparisonCoreModulePromise: Promise<ComparisonCoreModule> =
-  import.meta.url.includes("/packages/bruniai/src/")
-    ? import("../../../dist/comparison/core.js")
-    : import("./runtime/comparison/core.js");
+async function importSourceModule<T>(relativePath: string): Promise<T> {
+  return (await import(new URL(relativePath, import.meta.url).href)) as T;
+}
+
+async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
+  if (import.meta.url.includes("/packages/bruniai/src/")) {
+    try {
+      return await import("../../../dist/comparison/core.js");
+    } catch {
+      return await importSourceModule<ComparisonCoreModule>(
+        "../../../src/comparison/core.ts",
+      );
+    }
+  }
+
+  return await import("./runtime/comparison/core.js");
+}
 
 /**
  * Compare two URLs visually and return analysis results.
@@ -40,7 +53,7 @@ export async function compareUrls(
   input: CompareUrlsInput
 ): Promise<CompareUrlsOutput> {
   const { baseUrl, previewUrl, page = "/" } = input;
-  const { performComparison } = await comparisonCoreModulePromise;
+  const { performComparison } = await loadComparisonCoreModule();
 
   // Create temporary directory for images.
   const imagesDir = join(tmpdir(), `bruniai-${Date.now()}`);
