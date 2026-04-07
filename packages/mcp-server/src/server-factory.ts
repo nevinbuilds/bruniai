@@ -1,6 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { CompareImagesRequest, CompareUrlsRequest, ComparisonService } from "./types.js";
+import type {
+  CompareImageToUrlRequest,
+  CompareUrlsRequest,
+  ComparisonService,
+} from "./types.js";
 
 function buildSuccessResponse(payload: unknown) {
   return {
@@ -50,6 +54,7 @@ async function handleCompareUrls(
       baseUrl: args.baseUrl,
       previewUrl: args.previewUrl,
       page: args.page || "/",
+      sectionExplanationMode: args.sectionExplanationMode || "fast",
     });
     return buildSuccessResponse(result);
   } catch (error) {
@@ -57,22 +62,24 @@ async function handleCompareUrls(
   }
 }
 
-async function handleCompareImages(
+async function handleCompareImageToUrl(
   comparisonService: ComparisonService,
-  args: CompareImagesRequest,
+  args: CompareImageToUrlRequest,
 ) {
   try {
-    if (!args.baseImage || !args.previewImage) {
-      throw new Error("baseImage and previewImage are required");
+    if (!args.baseImageSource || !args.previewUrl) {
+      throw new Error("baseImageSource and previewUrl are required");
     }
 
     if (!process.env.OPENAI_API_KEY) {
       throw new Error("OPENAI_API_KEY environment variable is required");
     }
 
-    const result = await comparisonService.compareImages({
-      baseImage: args.baseImage,
-      previewImage: args.previewImage,
+    const result = await comparisonService.compareImageToUrl({
+      baseImageSource: args.baseImageSource,
+      previewUrl: args.previewUrl,
+      page: args.page || "/",
+      sectionExplanationMode: args.sectionExplanationMode || "fast",
     });
     return buildSuccessResponse(result);
   } catch (error) {
@@ -113,29 +120,50 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
           .default("/")
           .describe("Page path to compare (default: '/')")
           .optional(),
+        sectionExplanationMode: z
+          .enum(["fast", "detailed", "off"])
+          .default("fast")
+          .describe(
+            "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
+          )
+          .optional(),
       },
     },
     async (args) => handleCompareUrls(comparisonService, args),
   );
 
   server.registerTool(
-    "compare_images",
+    "compare_image_to_url",
     {
       description:
-        "Compare two images visually and analyze differences. " +
-        "Normalizes the inputs, generates diff images, analyzes sections, " +
-        "and performs AI-powered section explanation where available. " +
+        "Compare a base image source against a preview URL visually and analyze differences. " +
+        "Captures the preview page, normalizes the base image source, generates diff images, " +
+        "analyzes sections, and performs AI-powered section explanation where available. " +
         "Returns analysis results with paths to generated images.",
       inputSchema: {
-        baseImage: z
+        baseImageSource: z
           .string()
-          .describe("Base/reference image as an HTTP(S) URL or data:image/..."),
-        previewImage: z
+          .describe(
+            "Base/reference image source as an HTTP(S) image URL or data:image/...",
+          ),
+        previewUrl: z
           .string()
-          .describe("Preview/changed image as an HTTP(S) URL or data:image/..."),
+          .describe("Preview/changed webpage URL to analyze"),
+        page: z
+          .string()
+          .default("/")
+          .describe("Page path to compare on the preview URL (default: '/')")
+          .optional(),
+        sectionExplanationMode: z
+          .enum(["fast", "detailed", "off"])
+          .default("fast")
+          .describe(
+            "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
+          )
+          .optional(),
       },
     },
-    async (args) => handleCompareImages(comparisonService, args),
+    async (args) => handleCompareImageToUrl(comparisonService, args),
   );
 
   return server;

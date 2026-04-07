@@ -27,8 +27,8 @@ export function parseArgs(): Args {
     }
   }
   return {
-    baseUrl: args.baseurl,
-    prUrl: args.prurl,
+    baseUrl: args.baseimagesource || args.baseurl,
+    prUrl: args.previewurl || args.prurl,
     pages: args.pages,
     bruniToken: args.brunitoken,
     bruniApiUrl: args.bruniapiurl,

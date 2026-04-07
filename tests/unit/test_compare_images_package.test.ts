@@ -11,22 +11,30 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 
+vi.mock("@browserbasehq/stagehand", () => ({
+  Stagehand: class MockStagehand {
+    init = vi.fn().mockResolvedValue(undefined);
+    close = vi.fn().mockResolvedValue(undefined);
+  },
+}));
+
 const imageCoreModulePath = fileURLToPath(
-  new URL("../../dist/comparison/image-image-core.js", import.meta.url),
+  new URL("../../dist/comparison/image-core.js", import.meta.url),
 );
 const imageCoreSourceModuleUrl = new URL(
-  "../../src/comparison/image-image-core.ts",
+  "../../src/comparison/image-core.ts",
   import.meta.url,
 ).href;
 const packagedDistPath = fileURLToPath(
   new URL("../../packages/bruniai/dist", import.meta.url),
 );
 
-function createStandaloneCompareImagesModule(distDir: string): void {
+function createStandaloneCompareImageToUrlModule(distDir: string): void {
   mkdirSync(distDir, { recursive: true });
   writeFileSync(
-    join(distDir, "compare-images.js"),
-    `import { join } from "path";
+    join(distDir, "compare-image-to-url.js"),
+    `import { Stagehand } from "@browserbasehq/stagehand";
+import { join } from "path";
 import { fileURLToPath } from "url";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
@@ -34,10 +42,10 @@ async function importRuntimeModule(relativePath) {
   const modulePath = fileURLToPath(new URL(relativePath, import.meta.url));
   return await import(modulePath);
 }
-async function loadImageToImageComparisonModule() {
-  return await importRuntimeModule("./runtime/comparison/image-image-core.js");
+async function loadImageToUrlComparisonModule() {
+  return await importRuntimeModule("./runtime/comparison/image-core.js");
 }
-function isSupportedImageInput(input) {
+function isSupportedImageSource(input) {
   if (!input) return false;
   if (input.startsWith("data:image/")) return true;
   try {
@@ -47,25 +55,55 @@ function isSupportedImageInput(input) {
     return false;
   }
 }
-function assertSupportedImageInput(input, fieldName) {
-  if (!isSupportedImageInput(input)) {
+function assertSupportedImageSource(input, fieldName) {
+  if (!isSupportedImageSource(input)) {
     throw new Error(\`\${fieldName} must be an HTTP(S) image URL or data:image/... string\`);
   }
 }
-export async function compareImages(input) {
-  const { baseImage, previewImage } = input;
-  assertSupportedImageInput(baseImage, "baseImage");
-  assertSupportedImageInput(previewImage, "previewImage");
-  const { performImageToImageComparison } = await loadImageToImageComparisonModule();
+function assertSupportedPreviewUrl(input, fieldName) {
+  try {
+    const parsed = new URL(input);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+  } catch {
+    throw new Error(\`\${fieldName} must be an HTTP(S) URL\`);
+  }
+}
+export async function compareImageToUrl(input) {
+  const {
+    baseImageSource,
+    previewUrl,
+    page = "/",
+    sectionExplanationMode = "fast",
+    prNumber,
+    repository
+  } = input;
+  assertSupportedImageSource(baseImageSource, "baseImageSource");
+  assertSupportedPreviewUrl(previewUrl, "previewUrl");
+  const { performImageToUrlComparison } = await loadImageToUrlComparisonModule();
   const imagesDir = join(tmpdir(), \`bruniai-\${Date.now()}\`);
   if (!existsSync(imagesDir)) {
     mkdirSync(imagesDir, { recursive: true });
   }
-  const result = await performImageToImageComparison({
-    baseImageUrl: baseImage,
-    previewImageUrl: previewImage,
-    imagesDir,
+  const stagehand = new Stagehand({
+    env: "LOCAL",
+    localBrowserLaunchOptions: {
+      headless: true,
+    },
   });
+  try {
+    await stagehand.init();
+    const result = await performImageToUrlComparison({
+      stagehand,
+      baseImageSource,
+      previewUrl,
+      page,
+      sectionExplanationMode,
+      imagesDir,
+      prNumber,
+      repository,
+    });
   const status = result.visual_analysis.status === "none" ? "pass" : result.visual_analysis.status;
   return {
     status,
@@ -85,6 +123,9 @@ export async function compareImages(input) {
         : undefined,
     },
   };
+  } finally {
+    await stagehand.close();
+  }
 }
 `,
   );
@@ -94,9 +135,9 @@ function createStandaloneRuntimeModule(distDir: string): void {
   const runtimeComparisonDir = join(distDir, "runtime", "comparison");
   mkdirSync(runtimeComparisonDir, { recursive: true });
   writeFileSync(
-    join(runtimeComparisonDir, "image-image-core.js"),
-    `export async function performImageToImageComparison() {
-  throw new Error("performImageToImageComparison should be mocked in this test");
+    join(runtimeComparisonDir, "image-core.js"),
+    `export async function performImageToUrlComparison() {
+  throw new Error("performImageToUrlComparison should be mocked in this test");
 }
 `,
   );
@@ -107,29 +148,31 @@ function prepareStandalonePackageDist(packageRoot: string, distDir: string): voi
 
   if (existsSync(packagedDistPath)) {
     cpSync(packagedDistPath, distDir, { recursive: true });
-    return;
+    if (existsSync(join(distDir, "compare-image-to-url.js"))) {
+      return;
+    }
   }
 
-  createStandaloneCompareImagesModule(distDir);
+  createStandaloneCompareImageToUrlModule(distDir);
   createStandaloneRuntimeModule(distDir);
 }
 
-describe("compareImages package API", () => {
+describe("compareImageToUrl package API", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
   });
 
   it("returns the same top-level shape as compareUrls", async () => {
-    const performImageToImageComparison = vi.fn();
+    const performImageToUrlComparison = vi.fn();
     vi.doMock(imageCoreModulePath, () => ({
-      performImageToImageComparison,
+      performImageToUrlComparison,
     }));
     vi.doMock(imageCoreSourceModuleUrl, () => ({
-      performImageToImageComparison,
+      performImageToUrlComparison,
     }));
 
-    performImageToImageComparison.mockResolvedValue({
+    performImageToUrlComparison.mockResolvedValue({
       visual_analysis: { status: "pass" },
       sections_analysis: "sections",
       base_screenshot: "/tmp/base.png",
@@ -139,16 +182,16 @@ describe("compareImages package API", () => {
         hero: { base: "/tmp/hero-base.png", preview: "/tmp/hero-preview.png" },
       },
       section_results: [],
-      mode: "image-to-image",
+      mode: "image-to-url",
     } as any);
 
-    const { compareImages } = await import(
-      "../../packages/bruniai/src/compare-images.ts"
+    const { compareImageToUrl } = await import(
+      "../../packages/bruniai/src/compare-image-to-url.ts"
     );
 
-    const result = await compareImages({
-      baseImage: "data:image/png;base64,abc",
-      previewImage: "https://example.com/preview-image",
+    const result = await compareImageToUrl({
+      baseImageSource: "data:image/png;base64,abc",
+      previewUrl: "https://example.com/preview",
     });
 
     expect(Object.keys(result)).toEqual([
@@ -167,44 +210,84 @@ describe("compareImages package API", () => {
     });
   });
 
-  it("rejects unsupported local file path inputs", async () => {
-    const performImageToImageComparison = vi.fn();
+  it("forwards sectionExplanationMode to the comparison core", async () => {
+    const performImageToUrlComparison = vi.fn();
     vi.doMock(imageCoreModulePath, () => ({
-      performImageToImageComparison,
+      performImageToUrlComparison,
     }));
     vi.doMock(imageCoreSourceModuleUrl, () => ({
-      performImageToImageComparison,
+      performImageToUrlComparison,
     }));
 
-    const { compareImages } = await import(
-      "../../packages/bruniai/src/compare-images.ts"
+    performImageToUrlComparison.mockResolvedValue({
+      visual_analysis: { status: "pass" },
+      sections_analysis: "sections",
+      base_screenshot: "/tmp/base.png",
+      preview_screenshot: "/tmp/preview.png",
+      diff_image: "/tmp/diff.png",
+      section_screenshots: {},
+      section_results: [],
+      mode: "image-to-url",
+    } as any);
+
+    const { compareImageToUrl } = await import(
+      "../../packages/bruniai/src/compare-image-to-url.ts"
+    );
+
+    await compareImageToUrl({
+      baseImageSource: "data:image/png;base64,abc",
+      previewUrl: "https://example.com/preview",
+      sectionExplanationMode: "off",
+    });
+
+    expect(performImageToUrlComparison).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sectionExplanationMode: "off",
+      }),
+    );
+  });
+
+  it("rejects unsupported local file path inputs", async () => {
+    const performImageToUrlComparison = vi.fn();
+    vi.doMock(imageCoreModulePath, () => ({
+      performImageToUrlComparison,
+    }));
+    vi.doMock(imageCoreSourceModuleUrl, () => ({
+      performImageToUrlComparison,
+    }));
+
+    const { compareImageToUrl } = await import(
+      "../../packages/bruniai/src/compare-image-to-url.ts"
     );
 
     await expect(
-      compareImages({
-        baseImage: "/tmp/base.png",
-        previewImage: "https://example.com/preview.png",
+      compareImageToUrl({
+        baseImageSource: "/tmp/base.png",
+        previewUrl: "https://example.com/preview",
       }),
     ).rejects.toThrow(
-      "baseImage must be an HTTP(S) image URL or data:image/... string",
+      "baseImageSource must be an HTTP(S) image URL or data:image/... string",
     );
   });
 
   it("loads the packaged runtime from a standalone install layout", async () => {
     const isolatedPackageRoot = mkdtempSync(join(tmpdir(), "bruniai-package-"));
     const isolatedDistDir = join(isolatedPackageRoot, "dist");
-    const isolatedCompareImagesPath = join(isolatedDistDir, "compare-images.js");
+    const isolatedCompareImageToUrlPath = join(
+      isolatedDistDir,
+      "compare-image-to-url.js",
+    );
     const isolatedRuntimeModulePath = join(
       isolatedDistDir,
       "runtime",
       "comparison",
-      "image-image-core.js",
+      "image-core.js",
     );
 
     prepareStandalonePackageDist(isolatedPackageRoot, isolatedDistDir);
 
     vi.doMock(isolatedRuntimeModulePath, () => ({
-      performImageToImageComparison: vi.fn().mockResolvedValue({
+      performImageToUrlComparison: vi.fn().mockResolvedValue({
         visual_analysis: { status: "pass" },
         sections_analysis: "standalone",
         base_screenshot: "/tmp/base.png",
@@ -212,18 +295,18 @@ describe("compareImages package API", () => {
         diff_image: "/tmp/diff.png",
         section_screenshots: {},
         section_results: [],
-        mode: "image-to-image",
+        mode: "image-to-url",
       }),
     }));
 
     try {
-      const { compareImages } = await import(
-        pathToFileURL(isolatedCompareImagesPath).href
+      const { compareImageToUrl } = await import(
+        pathToFileURL(isolatedCompareImageToUrlPath).href
       );
 
-      const result = await compareImages({
-        baseImage: "https://example.com/base.png",
-        previewImage: "https://example.com/preview.png",
+      const result = await compareImageToUrl({
+        baseImageSource: "https://example.com/base.png",
+        previewUrl: "https://example.com/preview",
       });
 
       expect(result.status).toBe("pass");

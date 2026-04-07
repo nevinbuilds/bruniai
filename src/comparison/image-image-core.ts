@@ -19,10 +19,15 @@ import type { VisualAnalysisResult } from "../vision/types.js";
 import type { SectionVisualResult } from "../reporter/types.js";
 import { join } from "path";
 import sharp from "sharp";
+import {
+  shouldExplainSection,
+  type SectionExplanationMode,
+} from "./section-explanation-mode.js";
 
 export interface ImageToImageComparisonOptions {
   baseImageUrl: string;
   previewImageUrl: string;
+  sectionExplanationMode?: SectionExplanationMode;
   imagesDir: string;
   prNumber?: string;
   repository?: string;
@@ -92,6 +97,7 @@ export async function performImageToImageComparison(
   const {
     baseImageUrl,
     previewImageUrl,
+    sectionExplanationMode = "fast",
     imagesDir,
     prNumber = "",
     repository = "",
@@ -205,30 +211,34 @@ export async function performImageToImageComparison(
   }
 
   console.log("\n🧠 Step 10: Explaining matched sections with vision...");
-  if (process.env.OPENAI_API_KEY) {
-    const explainableSections = sectionMatches
-      .filter((match) => match.status !== "missing")
-      .map((match) => {
-        const artifacts = sectionArtifacts.get(match.sectionId);
-        if (!artifacts) {
-          return null;
-        }
+  const explainableSections = sectionMatches
+    .filter((match) => shouldExplainSection(match.status, sectionExplanationMode))
+    .map((match) => {
+      const artifacts = sectionArtifacts.get(match.sectionId);
+      if (!artifacts) {
+        return null;
+      }
 
-        return {
-          section_id: match.sectionId,
-          name: match.name,
-          base_screenshot: artifacts.base,
-          preview_screenshot: artifacts.preview,
-          diff_image: artifacts.diff,
-          match_score: match.matchScore,
-          final_similarity_score: match.signals.finalSimilarityScore,
-          pixel_difference: match.signals.pixelDifference,
-          edge_difference: match.signals.edgeDifference,
-          structural_similarity: match.signals.structuralSimilarity,
-        };
-      })
-      .filter((section): section is NonNullable<typeof section> => section !== null);
+      return {
+        section_id: match.sectionId,
+        name: match.name,
+        base_screenshot: artifacts.base,
+        preview_screenshot: artifacts.preview,
+        diff_image: artifacts.diff,
+        match_score: match.matchScore,
+        final_similarity_score: match.signals.finalSimilarityScore,
+        pixel_difference: match.signals.pixelDifference,
+        edge_difference: match.signals.edgeDifference,
+        structural_similarity: match.signals.structuralSimilarity,
+      };
+    })
+    .filter((section): section is NonNullable<typeof section> => section !== null);
 
+  if (sectionExplanationMode === "off") {
+    console.log(
+      "Skipping section explanation agent because sectionExplanationMode is off.",
+    );
+  } else if (process.env.OPENAI_API_KEY) {
     if (explainableSections.length > 0) {
       try {
         const explanations = await analyzeSectionDiffExplanationsAgent(
@@ -278,8 +288,11 @@ export async function performImageToImageComparison(
         }
       } catch (error) {
         console.warn(`Section explanation agent failed: ${error}`);
-        for (const match of sectionMatches) {
-          if (match.status === "missing") {
+        for (const section of explainableSections) {
+          const match = sectionMatches.find(
+            (candidate) => candidate.sectionId === section.section_id,
+          );
+          if (!match) {
             continue;
           }
           match.humanDescription = buildLlmUnavailableExplanation(
@@ -292,8 +305,11 @@ export async function performImageToImageComparison(
     }
   } else {
     console.log("Skipping section explanation agent because OPENAI_API_KEY is not set.");
-    for (const match of sectionMatches) {
-      if (match.status === "missing") {
+    for (const section of explainableSections) {
+      const match = sectionMatches.find(
+        (candidate) => candidate.sectionId === section.section_id,
+      );
+      if (!match) {
         continue;
       }
       match.humanDescription = buildLlmUnavailableExplanation(
@@ -344,7 +360,7 @@ export async function performImageToImageComparison(
 
   console.log("\n🧠 Step 11: Building deterministic report...");
   const visualAnalysis = buildImageModeVisualAnalysis({
-    baseUrl: baseImageUrl,
+    baseImageSource: baseImageUrl,
     previewUrl: previewImageUrl,
     prNumber,
     repository,

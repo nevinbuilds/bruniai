@@ -7,7 +7,7 @@ This package exposes visual comparison tools that can be used within Cursor and 
 Available tools:
 
 - `compare_urls`: URL-to-URL visual comparison
-- `compare_images`: Image-to-image visual comparison using HTTP(S) URLs or `data:image/...` inputs
+- `compare_image_to_url`: Base-image-to-preview-URL visual comparison using an HTTP(S) image URL or `data:image/...` base image source
 
 ## Remote Deployment
 
@@ -50,28 +50,23 @@ After installation, configure it in Cursor's MCP settings:
 
 ## Development
 
-### Building
-
-First, build the parent package (bruniai) to generate the dist files:
+Run development commands from the repository root after a single root install:
 
 ```bash
-cd ../..
-npm run build
+npm install
 ```
 
-Then build the bruniai package:
+Recommended commands:
 
 ```bash
-cd packages/bruniai
-npm run build
+npm run build:mcp
+npm run dev:mcp
+npm run dev:mcp-vercel
 ```
 
-Finally, build this package:
-
-```bash
-cd ../mcp-server
-npm run build
-```
+This repo uses npm workspaces, so local `bruniai` and `bruniai-mcp-server`
+packages are linked automatically from the root `node_modules`. You do not
+need to publish packages to test local changes.
 
 ### Running Locally
 

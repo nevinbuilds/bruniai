@@ -25,6 +25,8 @@ export interface AnalyzeSectionDiffExplanationsInput
   section_id: string;
 }
 
+const DEFAULT_SECTION_EXPLANATION_CONCURRENCY = 4;
+
 function isUnusableSectionExplanation(explanation: string): boolean {
   const normalized = explanation.trim().toLowerCase();
   return (
@@ -35,6 +37,135 @@ function isUnusableSectionExplanation(explanation: string): boolean {
     normalized === "visible differences are present." ||
     normalized === "layout is different."
   );
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+
+      if (currentIndex >= items.length) {
+        return;
+      }
+
+      try {
+        results[currentIndex] = {
+          status: "fulfilled",
+          value: await mapper(items[currentIndex] as T),
+        };
+      } catch (error) {
+        results[currentIndex] = {
+          status: "rejected",
+          reason: error,
+        };
+      }
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+async function requestSectionDiffExplanation(
+  client: OpenAI,
+  card: AnalyzeSectionDiffExplanationsInput,
+  base_url: string,
+  preview_url: string,
+): Promise<SectionDiffExplanation | null> {
+  const baseImage = readFileSync(card.base_screenshot).toString("base64");
+  const previewImage = readFileSync(card.preview_screenshot).toString("base64");
+  const diffImage = readFileSync(card.diff_image).toString("base64");
+  const response = await client.responses.create({
+    model: "gpt-5-mini",
+    input: [
+      {
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: "You are an expert visual UI reviewer. Compare one design crop, one webpage crop, and one diff image. Return valid JSON only.",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: `Review this single section comparison from ${base_url} to ${preview_url}.
+
+Section name: ${card.name}
+Section id: ${card.section_id}
+Match score: ${card.match_score.toFixed(3)}
+Final similarity score: ${card.final_similarity_score.toFixed(3)}
+Pixel difference: ${card.pixel_difference.toFixed(3)}
+Edge difference: ${card.edge_difference.toFixed(3)}
+Structural similarity: ${card.structural_similarity.toFixed(3)}
+
+Write a human-readable explanation of what is visibly different in this section.
+
+Rules:
+- Do not decide whether the section matched; that was already determined.
+- Mention at least one concrete visible element or property such as a heading, card, image, icon, button, text block, spacing, padding, alignment, border, background, column layout, or text wrapping.
+- If the section looks visually close, say that and mention any minor visible deviation.
+- If the crop looks ambiguous or weakly matched, say that clearly.
+- Keep the explanation to 1 or 2 sentences.
+- Do not use generic phrases like "overall layout structure differs", "a corresponding webpage region was found", or "the section differs materially from the design" unless you also name specific visible changes.
+- explanation_confidence must be between 0 and 1.
+
+Return ONLY JSON in this exact format:
+{
+  "sections": [
+    {
+      "section_id": "${card.section_id}",
+      "explanation": "Concrete explanation of the visible difference.",
+      "explanation_confidence": 0.84
+    }
+  ]
+}`,
+          },
+          {
+            type: "input_image",
+            image_url: `data:image/png;base64,${baseImage}`,
+            detail: "low",
+          },
+          {
+            type: "input_image",
+            image_url: `data:image/png;base64,${previewImage}`,
+            detail: "low",
+          },
+          {
+            type: "input_image",
+            image_url: `data:image/png;base64,${diffImage}`,
+            detail: "low",
+          },
+        ],
+      },
+    ],
+  });
+
+  const agentResponse = response.output_text || "";
+  const jsonString = extractJsonFromResponse(agentResponse) ?? agentResponse.trim();
+  const parsedJson = JSON.parse(jsonString);
+  const result = SectionDiffExplanationsSchema.parse(parsedJson);
+  const explanation = result.sections.find(
+    (section) => section.section_id === card.section_id,
+  );
+
+  if (!explanation || isUnusableSectionExplanation(explanation.explanation)) {
+    return null;
+  }
+
+  return explanation;
 }
 
 /**
@@ -415,97 +546,37 @@ export async function analyzeSectionDiffExplanationsAgent(
   });
   const explanations: SectionDiffExplanation[] = [];
 
-  for (const card of cards) {
-    try {
-      const baseImage = readFileSync(card.base_screenshot).toString("base64");
-      const previewImage = readFileSync(card.preview_screenshot).toString("base64");
-      const diffImage = readFileSync(card.diff_image).toString("base64");
-      const response = await client.responses.create({
-        model: "gpt-5-mini",
-        input: [
-          {
-            role: "system",
-            content: [
-              {
-                type: "input_text",
-                text: "You are an expert visual UI reviewer. Compare one design crop, one webpage crop, and one diff image. Return valid JSON only.",
-              },
-            ],
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: `Review this single section comparison from ${base_url} to ${preview_url}.
+  const results = await mapWithConcurrency(
+    cards,
+    DEFAULT_SECTION_EXPLANATION_CONCURRENCY,
+    (card) => requestSectionDiffExplanation(client, card, base_url, preview_url),
+  );
 
-Section name: ${card.name}
-Section id: ${card.section_id}
-Match score: ${card.match_score.toFixed(3)}
-Final similarity score: ${card.final_similarity_score.toFixed(3)}
-Pixel difference: ${card.pixel_difference.toFixed(3)}
-Edge difference: ${card.edge_difference.toFixed(3)}
-Structural similarity: ${card.structural_similarity.toFixed(3)}
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index];
+    const card = cards[index];
 
-Write a human-readable explanation of what is visibly different in this section.
-
-Rules:
-- Do not decide whether the section matched; that was already determined.
-- Mention at least one concrete visible element or property such as a heading, card, image, icon, button, text block, spacing, padding, alignment, border, background, column layout, or text wrapping.
-- If the section looks visually close, say that and mention any minor visible deviation.
-- If the crop looks ambiguous or weakly matched, say that clearly.
-- Keep the explanation to 1 or 2 sentences.
-- Do not use generic phrases like "overall layout structure differs", "a corresponding webpage region was found", or "the section differs materially from the design" unless you also name specific visible changes.
-- explanation_confidence must be between 0 and 1.
-
-Return ONLY JSON in this exact format:
-{
-  "sections": [
-    {
-      "section_id": "${card.section_id}",
-      "explanation": "Concrete explanation of the visible difference.",
-      "explanation_confidence": 0.84
+    if (!card) {
+      continue;
     }
-  ]
-}`,
-              },
-              {
-                type: "input_image",
-                image_url: `data:image/png;base64,${baseImage}`,
-                detail: "high",
-              },
-              {
-                type: "input_image",
-                image_url: `data:image/png;base64,${previewImage}`,
-                detail: "high",
-              },
-              {
-                type: "input_image",
-                image_url: `data:image/png;base64,${diffImage}`,
-                detail: "high",
-              },
-            ],
-          },
-        ],
-      });
 
-      const agentResponse = response.output_text || "";
-      const jsonString = extractJsonFromResponse(agentResponse) ?? agentResponse.trim();
-      const parsedJson = JSON.parse(jsonString);
-      const result = SectionDiffExplanationsSchema.parse(parsedJson);
-      const explanation = result.sections.find(
-        (section) => section.section_id === card.section_id,
+    if (!result) {
+      continue;
+    }
+
+    if (result.status === "rejected") {
+      console.warn(
+        `Section explanation request failed for ${card.section_id}: ${result.reason}`,
       );
+      continue;
+    }
 
-      if (explanation && !isUnusableSectionExplanation(explanation.explanation)) {
-        explanations.push(explanation);
-      } else {
-        console.warn(
-          `Section explanation for ${card.section_id} was too generic or missing in model output.`,
-        );
-      }
-    } catch (error) {
-      console.warn(`Section explanation request failed for ${card.section_id}: ${error}`);
+    if (result.value) {
+      explanations.push(result.value);
+    } else {
+      console.warn(
+        `Section explanation for ${card.section_id} was too generic or missing in model output.`,
+      );
     }
   }
 

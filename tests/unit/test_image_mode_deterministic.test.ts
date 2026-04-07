@@ -15,7 +15,7 @@ import {
   matchVisualSections,
   buildImageModeVisualAnalysis,
 } from "../../src/image/index.js";
-import { performImageComparison } from "../../src/comparison/image-core.js";
+import { performImageToUrlComparison } from "../../src/comparison/image-core.js";
 
 type Pattern = "checker" | "vertical" | "horizontal" | "diagonal";
 
@@ -384,9 +384,9 @@ describe("deterministic image mode", () => {
       },
     } as never;
 
-    const result = await performImageComparison({
+    const result = await performImageToUrlComparison({
       stagehand,
-      baseImageUrl: `data:image/png;base64,${designBuffer.toString("base64")}`,
+      baseImageSource: `data:image/png;base64,${designBuffer.toString("base64")}`,
       previewUrl: "https://preview.example.com",
       page: "/",
       imagesDir: tempDir,
@@ -439,9 +439,9 @@ describe("deterministic image mode", () => {
       },
     } as never;
 
-    const result = await performImageComparison({
+    const result = await performImageToUrlComparison({
       stagehand,
-      baseImageUrl: `data:image/png;base64,${designBuffer.toString("base64")}`,
+      baseImageSource: `data:image/png;base64,${designBuffer.toString("base64")}`,
       previewUrl: "https://preview.example.com",
       page: "/",
       imagesDir: tempDir,

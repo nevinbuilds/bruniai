@@ -8,7 +8,7 @@ import {
 } from "./github/pr-comments.js";
 import { parseArgs } from "./args.js";
 import { performComparison } from "./comparison/core.js";
-import { performImageComparison } from "./comparison/image-core.js";
+import { performImageToUrlComparison } from "./comparison/image-core.js";
 import { isImageSourceUrl } from "./image/index.js";
 import {
   BruniReporter,
@@ -25,7 +25,9 @@ async function main() {
   const args = parseArgs();
 
   if (!args.baseUrl || !args.prUrl) {
-    console.error("Error: --base-url and --pr-url are required");
+    console.error(
+      "Error: --base-url/--base-image-source and --pr-url/--preview-url are required",
+    );
     process.exit(1);
   }
 
@@ -56,8 +58,11 @@ async function main() {
   const isImageMode = isImageSourceUrl(args.baseUrl);
   const comparisonMode = isImageMode ? "image-to-url" : "url-to-url";
 
-  console.log("Base URL:", args.baseUrl);
-  console.log("PR URL:", args.prUrl);
+  console.log(
+    isImageMode ? "Base Image Source:" : "Base URL:",
+    args.baseUrl,
+  );
+  console.log("Preview URL:", args.prUrl);
   console.log("Comparison Mode:", comparisonMode);
   console.log("PR Title:", title);
   console.log("PR Description:", description);
@@ -135,16 +140,18 @@ async function main() {
       : args.baseUrl!.replace(/\/$/, "") + page;
     const prUrl = isImageMode ? args.prUrl! : args.prUrl!.replace(/\/$/, "") + page;
 
-    console.log(`Base URL: ${baseUrl}`);
-    console.log(`PR URL: ${prUrl}`);
+    console.log(
+      `${isImageMode ? "Base Image Source" : "Base URL"}: ${baseUrl}`,
+    );
+    console.log(`Preview URL: ${prUrl}`);
 
     // Perform the comparison using the appropriate function based on mode.
     let result;
     if (isImageMode) {
       // Use image-to-URL comparison.
-      result = await performImageComparison({
+      result = await performImageToUrlComparison({
         stagehand,
-        baseImageUrl: args.baseUrl!,
+        baseImageSource: args.baseUrl!,
         previewUrl: args.prUrl!,
         page,
         imagesDir,

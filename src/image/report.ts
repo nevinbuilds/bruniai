@@ -3,7 +3,7 @@ import type { VisualAnalysisResult } from "../vision/types.js";
 import { generateMetadata, validateAndFixEnums } from "../vision/utils.js";
 
 export interface BuildImageModeVisualAnalysisInput {
-  baseUrl: string;
+  baseImageSource: string;
   previewUrl: string;
   prNumber: string;
   repository: string;
@@ -13,7 +13,13 @@ export interface BuildImageModeVisualAnalysisInput {
 export function buildImageModeVisualAnalysis(
   input: BuildImageModeVisualAnalysisInput,
 ): VisualAnalysisResult {
-  const { baseUrl, previewUrl, prNumber, repository, sectionMatches } = input;
+  const {
+    baseImageSource,
+    previewUrl,
+    prNumber,
+    repository,
+    sectionMatches,
+  } = input;
 
   const missingSections = sectionMatches.filter((section) => section.status === "missing");
   const problematicSections = sectionMatches.filter(
@@ -56,7 +62,7 @@ export function buildImageModeVisualAnalysis(
 
   return validateAndFixEnums({
     id: metadata.id,
-    url: baseUrl,
+    url: baseImageSource,
     preview_url: previewUrl,
     repository,
     pr_number: prNumber,

@@ -7,7 +7,7 @@ The BruniAI MCP (Model Context Protocol) server exposes visual comparison functi
 The MCP server provides two tools:
 
 - `compare_urls` for comprehensive visual analysis between two URLs
-- `compare_images` for comprehensive visual analysis between two images
+- `compare_image_to_url` for comprehensive visual analysis between one base image source and one preview URL
 
 Shared capabilities:
 
@@ -19,7 +19,7 @@ Shared capabilities:
 Tool-specific behavior:
 
 - `compare_urls` captures full-page screenshots from the two URLs before analysis
-- `compare_images` compares the two provided image inputs directly
+- `compare_image_to_url` normalizes the provided base image source, captures the preview URL as a webpage screenshot, and compares those two rendered artifacts
 
 ## Installation
 
@@ -50,6 +50,41 @@ Then run the server using:
 ```bash
 npx bruniai-mcp-server
 ```
+
+## Local Development Workflow
+
+For local development in this monorepo, do not switch the app dependencies to
+`file:` references and do not publish packages just to test changes.
+
+Use the root workspace install once:
+
+```bash
+npm install
+```
+
+The root workspace links the local packages into `node_modules`, so local
+changes flow through the repo without publishing.
+
+Recommended root-level commands:
+
+```bash
+npm run build:mcp
+npm run dev:mcp
+npm run dev:mcp-vercel
+```
+
+What each command does:
+
+- `npm run build:mcp`: rebuilds the publishable `bruniai` and `bruniai-mcp-server` package `dist` output
+- `npm run dev:mcp`: runs the local stdio MCP server from `packages/mcp-server`
+- `npm run dev:mcp-vercel`: runs the Next.js HTTP MCP app from `apps/mcp-vercel`
+
+Notes:
+
+- Run these commands from the repository root
+- After rebuilding package code, restart the MCP process so it loads the new `dist`
+- Keep `apps/mcp-vercel/package.json` pinned to published versions so CI and release checks stay consistent
+- Avoid running a separate `npm install` inside `apps/mcp-vercel` for normal monorepo development
 
 ## Configuration
 
@@ -96,7 +131,7 @@ Add the following to your MCP configuration:
 
 ## Usage
 
-Once configured, the `compare_urls` and `compare_images` tools will be available in Cursor. You can invoke them through natural language or direct tool calls.
+Once configured, the `compare_urls` and `compare_image_to_url` tools will be available in Cursor. You can invoke them through natural language or direct tool calls.
 
 ## Remote HTTP Deployment
 
@@ -112,9 +147,13 @@ Recommended Vercel setup:
 
 1. Create a separate Vercel project for this repository.
 2. Set the project root directory to `apps/mcp-vercel`.
-3. Configure `OPENAI_API_KEY`, `MCP_BEARER_TOKEN`, and `MCP_ALLOWED_ORIGINS`.
-4. Add the custom domain `mcp.brunivisual.com`.
-5. Point MCP clients at `https://mcp.brunivisual.com/mcp`.
+3. Leave the build command as `npm run build`.
+4. The app's `prebuild` step runs `npm --prefix ../.. run build:mcp` so Vercel
+   generates the workspace package `dist` output before `next build` type-checks
+   imports from `bruniai` and `bruniai-mcp-server`.
+5. Configure `OPENAI_API_KEY`, `MCP_BEARER_TOKEN`, and `MCP_ALLOWED_ORIGINS`.
+6. Add the custom domain `mcp.brunivisual.com`.
+7. Point MCP clients at `https://mcp.brunivisual.com/mcp`.
 
 ### Tool Schema
 
@@ -180,14 +219,15 @@ The tool returns a JSON object with the following structure:
 }
 ```
 
-**Name**: `compare_images`
+**Name**: `compare_image_to_url`
 
-**Description**: Compare two images visually and analyze differences. Normalizes the image inputs, generates diff images, analyzes sections, and returns analysis results with paths to generated images.
+**Description**: Compare a base image source against a preview URL visually and analyze differences. Captures the preview page, normalizes the base image source, generates diff images, analyzes sections, and returns analysis results with paths to generated images.
 
 **Input Parameters**:
 
-- `baseImage` (string, required): Base/reference image as an HTTP(S) URL or `data:image/...`
-- `previewImage` (string, required): Preview/changed image as an HTTP(S) URL or `data:image/...`
+- `baseImageSource` (string, required): Base/reference image source as an HTTP(S) image URL or `data:image/...`
+- `previewUrl` (string, required): Preview/changed webpage URL to analyze
+- `page` (string, optional): Page path to compare on the preview URL (default: "/")
 
 ### Example Usage in Cursor
 
@@ -202,7 +242,7 @@ For my website  https://www.example.com I have changes in this preview site http
 For images:
 
 ```text
-Use bruniai-mcp-server compare_images to compare this design image https://example.com/design.png against this uploaded data URL image.
+Use bruniai-mcp-server compare_image_to_url to compare this design image https://example.com/design.png against the preview site https://preview.example.com on /contact.
 ```
 
 ## How It Works

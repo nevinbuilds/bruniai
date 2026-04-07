@@ -52,7 +52,12 @@ async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
 export async function compareUrls(
   input: CompareUrlsInput
 ): Promise<CompareUrlsOutput> {
-  const { baseUrl, previewUrl, page = "/" } = input;
+  const {
+    baseUrl,
+    previewUrl,
+    page = "/",
+    sectionExplanationMode = "fast",
+  } = input;
   const { performComparison } = await loadComparisonCoreModule();
 
   // Create temporary directory for images.
@@ -78,6 +83,7 @@ export async function compareUrls(
       baseUrl,
       previewUrl,
       page,
+      sectionExplanationMode,
       imagesDir,
       prNumber: input.prNumber,
       repository: input.repository,

@@ -22,6 +22,9 @@ packages/*/src/**/*.js
 packages/*/src/**/*.js.map
 packages/*/src/**/*.d.ts
 packages/*/src/**/*.d.ts.map
+!packages/bruniai/src/runtime/
+!packages/bruniai/src/runtime/comparison/
+!packages/bruniai/src/runtime/comparison/*.d.ts
 
 # testing
 /coverage

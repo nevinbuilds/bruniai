@@ -13,7 +13,7 @@ npm install bruniai
 ## Usage
 
 ```typescript
-import { compareImages, compareUrls } from "bruniai";
+import { compareImageToUrl, compareUrls } from "bruniai";
 
 const result = await compareUrls({
   baseUrl: "https://example.com",
@@ -25,9 +25,10 @@ console.log(result.status); // "pass" | "fail" | "warning"
 console.log(result.visual_analysis);
 console.log(result.images.base_screenshot);
 
-const imageResult = await compareImages({
-  baseImage: "https://example.com/design.png",
-  previewImage: "data:image/png;base64,...",
+const imageResult = await compareImageToUrl({
+  baseImageSource: "https://example.com/design.png",
+  previewUrl: "https://preview.example.com",
+  page: "/contact",
 });
 
 console.log(imageResult.status);
@@ -54,21 +55,24 @@ Performs a visual comparison between two URLs.
 - `sections_analysis`: Formatted sections analysis text
 - `images`: Object containing paths to generated screenshots and diff images
 
-### `compareImages(input: CompareImagesInput): Promise<CompareImagesOutput>`
+### `compareImageToUrl(input: CompareImageToUrlInput): Promise<CompareImageToUrlOutput>`
 
-Performs a visual comparison between two images.
+Performs a visual comparison between a base image source and a preview URL.
 
 **Parameters:**
 
-- `baseImage` (string): Base/reference image as an HTTP(S) URL or `data:image/...`
-- `previewImage` (string): Preview/changed image as an HTTP(S) URL or `data:image/...`
+- `baseImageSource` (string): Base/reference image source as an HTTP(S) image URL or `data:image/...`
+- `previewUrl` (string): Preview/changed webpage URL to analyze
+- `page` (string, optional): Page path to compare on the preview URL (default: "/")
+- `prNumber` (string, optional): PR number for metadata
+- `repository` (string, optional): Repository name for metadata
 
 **Returns:**
 
 - `status`: Overall comparison status ("pass" | "fail" | "warning" | "none")
 - `visual_analysis`: Detailed visual analysis result from AI
 - `sections_analysis`: Formatted sections analysis text
-- `images`: Object containing paths to normalized images and diff images
+- `images`: Object containing paths to normalized screenshots and diff images
 
 ## Requirements
 

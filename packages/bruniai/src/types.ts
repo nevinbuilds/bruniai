@@ -11,6 +11,12 @@ export interface CompareUrlsInput {
   previewUrl: string;
   /** Page path to compare (e.g., "/" or "/about"). Defaults to "/". */
   page?: string;
+  /**
+   * Controls vision-based section explanations in deterministic section diffing.
+   * "fast" explains only problematic matched sections, "detailed" explains all
+   * matched sections, and "off" skips the LLM explanation step.
+   */
+  sectionExplanationMode?: "fast" | "detailed" | "off";
   /** Optional PR number for metadata. */
   prNumber?: string;
   /** Optional repository name for metadata. */
@@ -18,13 +24,28 @@ export interface CompareUrlsInput {
 }
 
 /**
- * Input parameters for compareImages function.
+ * Input parameters for compareImageToUrl function.
  */
-export interface CompareImagesInput {
-  /** Base/reference image to compare against. Accepts HTTP(S) URLs or data URLs. */
-  baseImage: string;
-  /** Preview/changed image to analyze. Accepts HTTP(S) URLs or data URLs. */
-  previewImage: string;
+export interface CompareImageToUrlInput {
+  /**
+   * Base/reference image source to compare against.
+   * Accepts HTTP(S) image URLs or data:image/... URLs.
+   */
+  baseImageSource: string;
+  /** Preview/changed webpage URL to analyze. */
+  previewUrl: string;
+  /** Page path to compare (e.g., "/" or "/about"). Defaults to "/". */
+  page?: string;
+  /**
+   * Controls vision-based section explanations in deterministic section diffing.
+   * "fast" explains only problematic matched sections, "detailed" explains all
+   * matched sections, and "off" skips the LLM explanation step.
+   */
+  sectionExplanationMode?: "fast" | "detailed" | "off";
+  /** Optional PR number for metadata. */
+  prNumber?: string;
+  /** Optional repository name for metadata. */
+  repository?: string;
 }
 
 /**
@@ -56,6 +77,6 @@ export interface CompareUrlsOutput {
 }
 
 /**
- * Output structure for compareImages function.
+ * Output structure for compareImageToUrl function.
  */
-export type CompareImagesOutput = CompareUrlsOutput;
+export type CompareImageToUrlOutput = CompareUrlsOutput;

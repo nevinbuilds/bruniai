@@ -1,14 +1,34 @@
-import {
-  compareImages,
-  compareUrls,
-} from "bruniai";
 import type { ComparisonService } from "./types.js";
 
+type BruniaiModule = {
+  compareUrls: ComparisonService["compareUrls"];
+  compareImageToUrl: ComparisonService["compareImageToUrl"];
+};
+
+const BRUNIAI_MODULE_ID = "bruniai";
+let bruniaiModuleLoader: (() => Promise<BruniaiModule>) | null = null;
+
+async function loadBruniaiModule(): Promise<BruniaiModule> {
+  if (bruniaiModuleLoader) {
+    return bruniaiModuleLoader();
+  }
+
+  return (await import(BRUNIAI_MODULE_ID)) as BruniaiModule;
+}
+
+export function setBruniaiModuleLoaderForTests(
+  loader: (() => Promise<BruniaiModule>) | null,
+): void {
+  bruniaiModuleLoader = loader;
+}
+
 export const bruniaiComparisonService: ComparisonService = {
-  compareUrls(input) {
+  async compareUrls(input) {
+    const { compareUrls } = await loadBruniaiModule();
     return compareUrls(input);
   },
-  compareImages(input) {
-    return compareImages(input);
+  async compareImageToUrl(input) {
+    const { compareImageToUrl } = await loadBruniaiModule();
+    return compareImageToUrl(input);
   },
 };
