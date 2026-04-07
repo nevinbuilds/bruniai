@@ -3,34 +3,28 @@ import type {
   CompareImagesOutput,
 } from "./types.js";
 import { join } from "path";
-import { fileURLToPath } from "url";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
 
 type ImageToImageComparisonModule =
   typeof import("../../../dist/comparison/image-image-core.js");
 
-async function importRuntimeModule<T>(relativePath: string): Promise<T> {
-  const modulePath = fileURLToPath(new URL(relativePath, import.meta.url));
-  return (await import(modulePath)) as T;
+async function importSourceModule<T>(relativePath: string): Promise<T> {
+  return (await import(new URL(relativePath, import.meta.url).href)) as T;
 }
 
 async function loadImageToImageComparisonModule(): Promise<ImageToImageComparisonModule> {
-  try {
-    return await importRuntimeModule<ImageToImageComparisonModule>(
-      "./runtime/comparison/image-image-core.js",
-    );
-  } catch {
+  if (import.meta.url.includes("/packages/bruniai/src/")) {
     try {
-      return await importRuntimeModule<ImageToImageComparisonModule>(
-        "../../../dist/comparison/image-image-core.js",
-      );
+      return await import("../../../dist/comparison/image-image-core.js");
     } catch {
-      return await importRuntimeModule<ImageToImageComparisonModule>(
-        "../../../src/comparison/image-image-core.js",
+      return await importSourceModule<ImageToImageComparisonModule>(
+        "../../../src/comparison/image-image-core.ts",
       );
     }
   }
+
+  return await import("./runtime/comparison/image-image-core.js");
 }
 
 function isSupportedImageInput(input: string): boolean {
@@ -78,7 +72,6 @@ export async function compareImages(
 
   assertSupportedImageInput(baseImage, "baseImage");
   assertSupportedImageInput(previewImage, "previewImage");
-
   const { performImageToImageComparison } =
     await loadImageToImageComparisonModule();
 

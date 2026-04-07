@@ -14,6 +14,10 @@ import { tmpdir } from "os";
 const imageCoreModulePath = fileURLToPath(
   new URL("../../dist/comparison/image-image-core.js", import.meta.url),
 );
+const imageCoreSourceModuleUrl = new URL(
+  "../../src/comparison/image-image-core.ts",
+  import.meta.url,
+).href;
 const packagedDistPath = fileURLToPath(
   new URL("../../packages/bruniai/dist", import.meta.url),
 );
@@ -117,12 +121,15 @@ describe("compareImages package API", () => {
   });
 
   it("returns the same top-level shape as compareUrls", async () => {
+    const performImageToImageComparison = vi.fn();
     vi.doMock(imageCoreModulePath, () => ({
-      performImageToImageComparison: vi.fn(),
+      performImageToImageComparison,
+    }));
+    vi.doMock(imageCoreSourceModuleUrl, () => ({
+      performImageToImageComparison,
     }));
 
-    const { performImageToImageComparison } = await import(imageCoreModulePath);
-    vi.mocked(performImageToImageComparison).mockResolvedValue({
+    performImageToImageComparison.mockResolvedValue({
       visual_analysis: { status: "pass" },
       sections_analysis: "sections",
       base_screenshot: "/tmp/base.png",
@@ -161,8 +168,12 @@ describe("compareImages package API", () => {
   });
 
   it("rejects unsupported local file path inputs", async () => {
+    const performImageToImageComparison = vi.fn();
     vi.doMock(imageCoreModulePath, () => ({
-      performImageToImageComparison: vi.fn(),
+      performImageToImageComparison,
+    }));
+    vi.doMock(imageCoreSourceModuleUrl, () => ({
+      performImageToImageComparison,
     }));
 
     const { compareImages } = await import(

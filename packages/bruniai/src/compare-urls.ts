@@ -1,33 +1,27 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import type { CompareUrlsInput, CompareUrlsOutput } from "./types.js";
 import { join } from "path";
-import { fileURLToPath } from "url";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
 
 type ComparisonCoreModule = typeof import("../../../dist/comparison/core.js");
 
-async function importRuntimeModule<T>(relativePath: string): Promise<T> {
-  const modulePath = fileURLToPath(new URL(relativePath, import.meta.url));
-  return (await import(modulePath)) as T;
+async function importSourceModule<T>(relativePath: string): Promise<T> {
+  return (await import(new URL(relativePath, import.meta.url).href)) as T;
 }
 
 async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
-  try {
-    return await importRuntimeModule<ComparisonCoreModule>(
-      "./runtime/comparison/core.js",
-    );
-  } catch {
+  if (import.meta.url.includes("/packages/bruniai/src/")) {
     try {
-      return await importRuntimeModule<ComparisonCoreModule>(
-        "../../../dist/comparison/core.js",
-      );
+      return await import("../../../dist/comparison/core.js");
     } catch {
-      return await importRuntimeModule<ComparisonCoreModule>(
-        "../../../src/comparison/core.js",
+      return await importSourceModule<ComparisonCoreModule>(
+        "../../../src/comparison/core.ts",
       );
     }
   }
+
+  return await import("./runtime/comparison/core.js");
 }
 
 /**
