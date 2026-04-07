@@ -17,7 +17,6 @@ const imageCoreModulePath = fileURLToPath(
 const packagedDistPath = fileURLToPath(
   new URL("../../packages/bruniai/dist", import.meta.url),
 );
-const rootDistPath = fileURLToPath(new URL("../../dist", import.meta.url));
 
 function createStandaloneCompareImagesModule(distDir: string): void {
   writeFileSync(
@@ -86,6 +85,18 @@ export async function compareImages(input) {
   );
 }
 
+function createStandaloneRuntimeModule(distDir: string): void {
+  const runtimeComparisonDir = join(distDir, "runtime", "comparison");
+  mkdirSync(runtimeComparisonDir, { recursive: true });
+  writeFileSync(
+    join(runtimeComparisonDir, "image-image-core.js"),
+    `export async function performImageToImageComparison() {
+  throw new Error("performImageToImageComparison should be mocked in this test");
+}
+`,
+  );
+}
+
 function prepareStandalonePackageDist(packageRoot: string, distDir: string): void {
   writeFileSync(join(packageRoot, "package.json"), '{ "type": "module" }\n');
 
@@ -94,9 +105,8 @@ function prepareStandalonePackageDist(packageRoot: string, distDir: string): voi
     return;
   }
 
-  mkdirSync(join(distDir, "runtime"), { recursive: true });
-  cpSync(rootDistPath, join(distDir, "runtime"), { recursive: true });
   createStandaloneCompareImagesModule(distDir);
+  createStandaloneRuntimeModule(distDir);
 }
 
 describe("compareImages package API", () => {
