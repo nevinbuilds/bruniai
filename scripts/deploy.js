@@ -75,6 +75,28 @@ function writePackageJson(path, data) {
   writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
 }
 
+// Keep the workspace package-lock metadata aligned with manifest versions.
+function syncWorkspaceLockfile(path, newVersion) {
+  const lockfile = readPackageJson(path);
+
+  lockfile.version = newVersion;
+  if (lockfile.packages?.[""]) {
+    lockfile.packages[""].version = newVersion;
+  }
+  if (lockfile.packages?.["packages/bruniai"]) {
+    lockfile.packages["packages/bruniai"].version = newVersion;
+  }
+  if (lockfile.packages?.["packages/mcp-server"]) {
+    lockfile.packages["packages/mcp-server"].version = newVersion;
+    if (lockfile.packages["packages/mcp-server"].dependencies) {
+      lockfile.packages["packages/mcp-server"].dependencies.bruniai =
+        newVersion;
+    }
+  }
+
+  writePackageJson(path, lockfile);
+}
+
 // Bump version.
 function bumpVersion(version, type = "patch") {
   const [major, minor, patch] = version.split(".").map(Number);
@@ -132,6 +154,9 @@ async function deploy() {
   const mcpServerPkg = readPackageJson(
     join(rootDir, "packages/mcp-server/package.json")
   );
+  const mcpVercelAppPkg = readPackageJson(
+    join(rootDir, "apps/mcp-vercel/package.json")
+  );
 
   // Determine new version.
   const currentVersion = bruniaiPkg.version;
@@ -169,10 +194,20 @@ async function deploy() {
   writePackageJson(join(rootDir, "packages/bruniai/package.json"), bruniaiPkg);
 
   mcpServerPkg.version = newVersion;
+  mcpServerPkg.dependencies.bruniai = newVersion;
   writePackageJson(
     join(rootDir, "packages/mcp-server/package.json"),
     mcpServerPkg
   );
+
+  mcpVercelAppPkg.dependencies.bruniai = newVersion;
+  mcpVercelAppPkg.dependencies["bruniai-mcp-server"] = newVersion;
+  writePackageJson(
+    join(rootDir, "apps/mcp-vercel/package.json"),
+    mcpVercelAppPkg
+  );
+
+  syncWorkspaceLockfile(join(rootDir, "package-lock.json"), newVersion);
 
   rootPkg.version = newVersion;
   writePackageJson(join(rootDir, "package.json"), rootPkg);
@@ -206,7 +241,7 @@ async function deploy() {
   // Commit version changes.
   info("Committing version changes...");
   exec(
-    "git add packages/bruniai/package.json packages/mcp-server/package.json package.json"
+    "git add packages/bruniai/package.json packages/mcp-server/package.json apps/mcp-vercel/package.json package.json package-lock.json"
   );
   exec(`git commit -m "chore: bump version to ${newVersion}"`);
   success("Version changes committed!");
