@@ -51,6 +51,41 @@ Then run the server using:
 npx bruniai-mcp-server
 ```
 
+## Local Development Workflow
+
+For local development in this monorepo, do not switch the app dependencies to
+`file:` references and do not publish packages just to test changes.
+
+Use the root workspace install once:
+
+```bash
+npm install
+```
+
+The root workspace links the local packages into `node_modules`, so local
+changes flow through the repo without publishing.
+
+Recommended root-level commands:
+
+```bash
+npm run build:mcp
+npm run dev:mcp
+npm run dev:mcp-vercel
+```
+
+What each command does:
+
+- `npm run build:mcp`: rebuilds the publishable `bruniai` and `bruniai-mcp-server` package `dist` output
+- `npm run dev:mcp`: runs the local stdio MCP server from `packages/mcp-server`
+- `npm run dev:mcp-vercel`: runs the Next.js HTTP MCP app from `apps/mcp-vercel`
+
+Notes:
+
+- Run these commands from the repository root
+- After rebuilding package code, restart the MCP process so it loads the new `dist`
+- Keep `apps/mcp-vercel/package.json` pinned to published versions so CI and release checks stay consistent
+- Avoid running a separate `npm install` inside `apps/mcp-vercel` for normal monorepo development
+
 ## Configuration
 
 ### Environment Variables
