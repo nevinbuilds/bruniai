@@ -23,6 +23,11 @@ Implementation note:
 
 1. Create a new Vercel project pointing at this repository.
 2. Set the project root directory to `apps/mcp-vercel`.
-3. Configure the required environment variables.
-4. Add the custom domain `mcp.brunivisual.com`.
-5. Point your MCP client at `https://mcp.brunivisual.com/mcp`.
+3. Leave the build command as `npm run build`.
+4. The app build automatically runs a workspace prebuild to generate the
+   publishable `bruniai` and `bruniai-mcp-server` `dist` output before
+   `next build`. This is required because the app imports those workspace
+   packages by name and their published type declarations live under `dist/`.
+5. Configure the required environment variables.
+6. Add the custom domain `mcp.brunivisual.com`.
+7. Point your MCP client at `https://mcp.brunivisual.com/mcp`.

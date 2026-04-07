@@ -147,9 +147,13 @@ Recommended Vercel setup:
 
 1. Create a separate Vercel project for this repository.
 2. Set the project root directory to `apps/mcp-vercel`.
-3. Configure `OPENAI_API_KEY`, `MCP_BEARER_TOKEN`, and `MCP_ALLOWED_ORIGINS`.
-4. Add the custom domain `mcp.brunivisual.com`.
-5. Point MCP clients at `https://mcp.brunivisual.com/mcp`.
+3. Leave the build command as `npm run build`.
+4. The app's `prebuild` step runs `npm --prefix ../.. run build:mcp` so Vercel
+   generates the workspace package `dist` output before `next build` type-checks
+   imports from `bruniai` and `bruniai-mcp-server`.
+5. Configure `OPENAI_API_KEY`, `MCP_BEARER_TOKEN`, and `MCP_ALLOWED_ORIGINS`.
+6. Add the custom domain `mcp.brunivisual.com`.
+7. Point MCP clients at `https://mcp.brunivisual.com/mcp`.
 
 ### Tool Schema
 
