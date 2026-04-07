@@ -6,7 +6,8 @@
   "author": "Joao Garin",
   "license": "MIT",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "rm -rf images && tsc",

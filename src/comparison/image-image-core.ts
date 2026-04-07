@@ -344,7 +344,7 @@ export async function performImageToImageComparison(
 
   console.log("\n🧠 Step 11: Building deterministic report...");
   const visualAnalysis = buildImageModeVisualAnalysis({
-    baseUrl: baseImageUrl,
+    baseImageSource: baseImageUrl,
     previewUrl: previewImageUrl,
     prNumber,
     repository,

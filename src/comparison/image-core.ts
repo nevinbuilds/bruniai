@@ -26,9 +26,9 @@ import { join } from "path";
 import { writeFileSync } from "fs";
 import sharp from "sharp";
 
-export interface ImageComparisonOptions {
+export interface ImageToUrlComparisonOptions {
   stagehand: Stagehand;
-  baseImageUrl: string;
+  baseImageSource: string;
   previewUrl: string;
   page: string;
   imagesDir: string;
@@ -36,7 +36,7 @@ export interface ImageComparisonOptions {
   repository?: string;
 }
 
-export interface ImageComparisonResult {
+export interface ImageToUrlComparisonResult {
   visual_analysis: VisualAnalysisResult;
   sections_analysis: string;
   base_screenshot: string;
@@ -94,12 +94,12 @@ async function resizeImageToWidth(
   };
 }
 
-export async function performImageComparison(
-  options: ImageComparisonOptions,
-): Promise<ImageComparisonResult> {
+export async function performImageToUrlComparison(
+  options: ImageToUrlComparisonOptions,
+): Promise<ImageToUrlComparisonResult> {
   const {
     stagehand,
-    baseImageUrl,
+    baseImageSource,
     previewUrl,
     page,
     imagesDir,
@@ -127,7 +127,7 @@ export async function performImageComparison(
   );
 
   console.log("\n📥 Step 1: Downloading design image...");
-  await downloadImageToPng(baseImageUrl, baseOriginalPath);
+  await downloadImageToPng(baseImageSource, baseOriginalPath);
 
   console.log("\n✂️ Step 2: Trimming design image margins...");
   const trimResult = await trimImageToContent(baseOriginalPath, baseScreenshotPath);
@@ -247,7 +247,7 @@ export async function performImageComparison(
       try {
         const explanations = await analyzeSectionDiffExplanationsAgent(
           explainableSections,
-          baseImageUrl,
+          baseImageSource,
           previewUrl,
         );
         const explanationsById = new Map(
@@ -358,7 +358,7 @@ export async function performImageComparison(
 
   console.log("\n🧠 Step 10: Building deterministic report...");
   const visualAnalysis = buildImageModeVisualAnalysis({
-    baseUrl: baseImageUrl,
+    baseImageSource,
     previewUrl,
     prNumber,
     repository,

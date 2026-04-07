@@ -6,10 +6,10 @@
  */
 
 export { compareUrls } from "./compare-urls.js";
-export { compareImages } from "./compare-images.js";
+export { compareImageToUrl } from "./compare-image-to-url.js";
 export type {
-  CompareImagesInput,
-  CompareImagesOutput,
+  CompareImageToUrlInput,
+  CompareImageToUrlOutput,
   CompareUrlsInput,
   CompareUrlsOutput,
   ComparisonImages,

@@ -32,7 +32,7 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
 
 vi.mock("bruniai", () => ({
   compareUrls: vi.fn(),
-  compareImages: vi.fn(),
+  compareImageToUrl: vi.fn(),
 }));
 
 describe("MCP server", () => {
@@ -53,7 +53,7 @@ describe("MCP server", () => {
     vi.clearAllMocks();
   });
 
-  it("registers compare_images alongside compare_urls", async () => {
+  it("registers compare_image_to_url alongside compare_urls", async () => {
     const { createServer } = await import(
       "../../packages/mcp-server/src/mcp-server.ts"
     );
@@ -62,13 +62,13 @@ describe("MCP server", () => {
 
     expect(registeredTools.map((tool) => tool.name)).toEqual([
       "compare_urls",
-      "compare_images",
+      "compare_image_to_url",
     ]);
   });
 
-  it("routes compare_images to the bruniai compareImages API", async () => {
+  it("routes compare_image_to_url to the bruniai compareImageToUrl API", async () => {
     const bruniai = await import("bruniai");
-    vi.mocked(bruniai.compareImages).mockResolvedValue({
+    vi.mocked(bruniai.compareImageToUrl).mockResolvedValue({
       status: "pass",
       visual_analysis: { status: "pass" },
       sections_analysis: "sections",
@@ -84,38 +84,41 @@ describe("MCP server", () => {
     );
     createServer();
 
-    const compareImagesTool = registeredTools.find(
-      (tool) => tool.name === "compare_images",
+    const compareImageToUrlTool = registeredTools.find(
+      (tool) => tool.name === "compare_image_to_url",
     );
-    expect(compareImagesTool).toBeDefined();
+    expect(compareImageToUrlTool).toBeDefined();
 
-    const response = await compareImagesTool!.handler({
-      baseImage: "data:image/png;base64,abc",
-      previewImage: "https://example.com/preview.png",
+    const response = await compareImageToUrlTool!.handler({
+      baseImageSource: "data:image/png;base64,abc",
+      previewUrl: "https://example.com/preview",
     });
 
-    expect(bruniai.compareImages).toHaveBeenCalledWith({
-      baseImage: "data:image/png;base64,abc",
-      previewImage: "https://example.com/preview.png",
+    expect(bruniai.compareImageToUrl).toHaveBeenCalledWith({
+      baseImageSource: "data:image/png;base64,abc",
+      previewUrl: "https://example.com/preview",
+      page: "/",
     });
     expect(response.isError).toBeUndefined();
   });
 
-  it("returns an MCP error payload for invalid compare_images input", async () => {
+  it("returns an MCP error payload for invalid compare_image_to_url input", async () => {
     const { createServer } = await import(
       "../../packages/mcp-server/src/mcp-server.ts"
     );
     createServer();
 
-    const compareImagesTool = registeredTools.find(
-      (tool) => tool.name === "compare_images",
+    const compareImageToUrlTool = registeredTools.find(
+      (tool) => tool.name === "compare_image_to_url",
     );
-    const response = await compareImagesTool!.handler({
-      baseImage: "",
-      previewImage: "https://example.com/preview.png",
+    const response = await compareImageToUrlTool!.handler({
+      baseImageSource: "",
+      previewUrl: "https://example.com/preview",
     });
 
     expect(response.isError).toBe(true);
-    expect(response.content[0].text).toContain("baseImage and previewImage are required");
+    expect(response.content[0].text).toContain(
+      "baseImageSource and previewUrl are required",
+    );
   });
 });

@@ -7,7 +7,7 @@ This package exposes visual comparison tools that can be used within Cursor and 
 Available tools:
 
 - `compare_urls`: URL-to-URL visual comparison
-- `compare_images`: Image-to-image visual comparison using HTTP(S) URLs or `data:image/...` inputs
+- `compare_image_to_url`: Base-image-to-preview-URL visual comparison using an HTTP(S) image URL or `data:image/...` base image source
 
 ## Remote Deployment
 

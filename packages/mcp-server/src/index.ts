@@ -8,6 +8,6 @@ export { handleHealthCheck } from "./health-handler.js";
 export { createBruniMcpServer } from "./server-factory.js";
 export type {
   ComparisonService,
-  CompareImagesRequest,
+  CompareImageToUrlRequest,
   CompareUrlsRequest,
 } from "./types.js";

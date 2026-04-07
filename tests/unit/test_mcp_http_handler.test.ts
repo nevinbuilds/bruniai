@@ -7,7 +7,7 @@ import {
 import { handleHealthCheck } from "../../packages/mcp-server/src/health-handler.js";
 import type {
   ComparisonService,
-  CompareImagesRequest,
+  CompareImageToUrlRequest,
   CompareUrlsRequest,
 } from "../../packages/mcp-server/src/types.js";
 
@@ -67,8 +67,8 @@ describe("HTTP MCP handler", () => {
       compareUrls: vi
         .fn<(input: CompareUrlsRequest) => Promise<unknown>>()
         .mockResolvedValue({ ok: true }),
-      compareImages: vi
-        .fn<(input: CompareImagesRequest) => Promise<unknown>>()
+      compareImageToUrl: vi
+        .fn<(input: CompareImageToUrlRequest) => Promise<unknown>>()
         .mockResolvedValue({ ok: true }),
     };
     process.env.OPENAI_API_KEY = "test-key";
