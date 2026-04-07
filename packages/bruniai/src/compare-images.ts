@@ -18,12 +18,18 @@ async function importRuntimeModule<T>(relativePath: string): Promise<T> {
 async function loadImageToImageComparisonModule(): Promise<ImageToImageComparisonModule> {
   try {
     return await importRuntimeModule<ImageToImageComparisonModule>(
-      "../../../dist/comparison/image-image-core.js",
+      "./runtime/comparison/image-image-core.js",
     );
   } catch {
-    return await importRuntimeModule<ImageToImageComparisonModule>(
-      "../../../src/comparison/image-image-core.js",
-    );
+    try {
+      return await importRuntimeModule<ImageToImageComparisonModule>(
+        "../../../dist/comparison/image-image-core.js",
+      );
+    } catch {
+      return await importRuntimeModule<ImageToImageComparisonModule>(
+        "../../../src/comparison/image-image-core.js",
+      );
+    }
   }
 }
 

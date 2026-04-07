@@ -15,12 +15,18 @@ async function importRuntimeModule<T>(relativePath: string): Promise<T> {
 async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
   try {
     return await importRuntimeModule<ComparisonCoreModule>(
-      "../../../dist/comparison/core.js",
+      "./runtime/comparison/core.js",
     );
   } catch {
-    return await importRuntimeModule<ComparisonCoreModule>(
-      "../../../src/comparison/core.js",
-    );
+    try {
+      return await importRuntimeModule<ComparisonCoreModule>(
+        "../../../dist/comparison/core.js",
+      );
+    } catch {
+      return await importRuntimeModule<ComparisonCoreModule>(
+        "../../../src/comparison/core.js",
+      );
+    }
   }
 }
 

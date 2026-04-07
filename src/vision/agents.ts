@@ -16,9 +16,9 @@ import {
 } from "./utils.js";
 import { extractJsonFromResponse } from "../utils/json.js";
 import { readFileSync, writeFileSync, unlinkSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
+import { tmpdir } from "os";
 
 export interface AnalyzeSectionDiffExplanationsInput
   extends SectionDiffReviewCard {
@@ -250,15 +250,8 @@ export async function analyzeImagesAgent(
 
   // Create a temporary HTML file with unique filename to avoid conflicts
   // when multiple processes run concurrently.
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
   const uniqueId = uuidv4();
-  const tempHtmlPath = join(
-    __dirname,
-    "..",
-    "..",
-    `temp-images-comparison-${uniqueId}.html`,
-  );
+  const tempHtmlPath = join(tmpdir(), `temp-images-comparison-${uniqueId}.html`);
 
   writeFileSync(tempHtmlPath, comparisonHtml, "utf-8");
 
