@@ -1,7 +1,14 @@
+const bruniaiRuntimeTraceGlobs = [
+  "./node_modules/bruniai/dist/runtime/**/*",
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
     externalDir: true,
+  },
+  outputFileTracingIncludes: {
+    "/api/mcp": bruniaiRuntimeTraceGlobs,
   },
   async rewrites() {
     return [
