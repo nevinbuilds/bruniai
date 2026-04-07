@@ -1,4 +1,4 @@
-# 🎨 Visual Regression Testing with Playwright and OpenAI
+# 🎨 AI Visual Regression Testing
 
 [![codecov](https://codecov.io/gh/nevinbuilds/bruniai-action/graph/badge.svg?token=83PQIAM92U)](https://codecov.io/gh/nevinbuilds/bruniai-action)
 
