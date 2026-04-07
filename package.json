@@ -1,6 +1,6 @@
 {
   "name": "bruniai",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "type": "module",
   "description": "AI-powered visual regression testing tool",
   "author": "Joao Garin",
