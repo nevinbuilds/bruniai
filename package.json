@@ -10,7 +10,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "rm -rf images && tsc",
+    "build": "rm -rf images dist tsconfig.tsbuildinfo && tsc",
     "build:mcp": "npm --prefix packages/mcp-server run build",
     "dev": "tsx src/index.ts",
     "dev:mcp": "npm --prefix packages/mcp-server run dev",

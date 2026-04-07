@@ -17,7 +17,7 @@
     }
   },
   "scripts": {
-    "build": "npm --prefix ../bruniai run build && tsc",
+    "build": "rm -rf dist tsconfig.tsbuildinfo && npm --prefix ../bruniai run build && tsc",
     "dev": "tsx src/mcp-server.ts"
   },
   "dependencies": {

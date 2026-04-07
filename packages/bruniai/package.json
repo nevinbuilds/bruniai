@@ -18,7 +18,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "npm --prefix ../.. run build && tsc && node ./scripts/prepare-runtime.mjs",
+    "build": "rm -rf dist tsconfig.tsbuildinfo && npm --prefix ../.. run build && tsc && node ./scripts/prepare-runtime.mjs",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
