@@ -11,6 +11,12 @@ export interface CompareUrlsInput {
   previewUrl: string;
   /** Page path to compare (e.g., "/" or "/about"). Defaults to "/". */
   page?: string;
+  /**
+   * Controls vision-based section explanations in deterministic section diffing.
+   * "fast" explains only problematic matched sections, "detailed" explains all
+   * matched sections, and "off" skips the LLM explanation step.
+   */
+  sectionExplanationMode?: "fast" | "detailed" | "off";
   /** Optional PR number for metadata. */
   prNumber?: string;
   /** Optional repository name for metadata. */
@@ -30,6 +36,12 @@ export interface CompareImageToUrlInput {
   previewUrl: string;
   /** Page path to compare (e.g., "/" or "/about"). Defaults to "/". */
   page?: string;
+  /**
+   * Controls vision-based section explanations in deterministic section diffing.
+   * "fast" explains only problematic matched sections, "detailed" explains all
+   * matched sections, and "off" skips the LLM explanation step.
+   */
+  sectionExplanationMode?: "fast" | "detailed" | "off";
   /** Optional PR number for metadata. */
   prNumber?: string;
   /** Optional repository name for metadata. */

@@ -84,6 +84,7 @@ export async function compareImageToUrl(
     baseImageSource,
     previewUrl,
     page = "/",
+    sectionExplanationMode = "fast",
     prNumber,
     repository,
   } = input;
@@ -114,6 +115,7 @@ export async function compareImageToUrl(
       baseImageSource,
       previewUrl,
       page,
+      sectionExplanationMode,
       imagesDir,
       prNumber,
       repository,

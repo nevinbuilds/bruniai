@@ -54,6 +54,7 @@ async function handleCompareUrls(
       baseUrl: args.baseUrl,
       previewUrl: args.previewUrl,
       page: args.page || "/",
+      sectionExplanationMode: args.sectionExplanationMode || "fast",
     });
     return buildSuccessResponse(result);
   } catch (error) {
@@ -78,6 +79,7 @@ async function handleCompareImageToUrl(
       baseImageSource: args.baseImageSource,
       previewUrl: args.previewUrl,
       page: args.page || "/",
+      sectionExplanationMode: args.sectionExplanationMode || "fast",
     });
     return buildSuccessResponse(result);
   } catch (error) {
@@ -118,6 +120,13 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
           .default("/")
           .describe("Page path to compare (default: '/')")
           .optional(),
+        sectionExplanationMode: z
+          .enum(["fast", "detailed", "off"])
+          .default("fast")
+          .describe(
+            "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
+          )
+          .optional(),
       },
     },
     async (args) => handleCompareUrls(comparisonService, args),
@@ -144,6 +153,13 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
           .string()
           .default("/")
           .describe("Page path to compare on the preview URL (default: '/')")
+          .optional(),
+        sectionExplanationMode: z
+          .enum(["fast", "detailed", "off"])
+          .default("fast")
+          .describe(
+            "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
+          )
           .optional(),
       },
     },

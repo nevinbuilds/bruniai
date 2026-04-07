@@ -2,12 +2,14 @@ export interface CompareUrlsRequest {
   baseUrl: string;
   previewUrl: string;
   page?: string;
+  sectionExplanationMode?: "fast" | "detailed" | "off";
 }
 
 export interface CompareImageToUrlRequest {
   baseImageSource: string;
   previewUrl: string;
   page?: string;
+  sectionExplanationMode?: "fast" | "detailed" | "off";
 }
 
 export interface ComparisonService {

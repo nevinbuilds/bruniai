@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const registeredTools: Array<{
   name: string;
+  config: any;
   handler: (args: any) => Promise<any>;
 }> = [];
 
@@ -16,10 +17,10 @@ vi.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
 
     registerTool(
       name: string,
-      _config: unknown,
+      config: unknown,
       handler: (args: any) => Promise<any>,
     ) {
-      registeredTools.push({ name, handler });
+      registeredTools.push({ name, config, handler });
     }
 
     connect = vi.fn().mockResolvedValue(undefined);
@@ -92,14 +93,36 @@ describe("MCP server", () => {
     const response = await compareImageToUrlTool!.handler({
       baseImageSource: "data:image/png;base64,abc",
       previewUrl: "https://example.com/preview",
+      sectionExplanationMode: "off",
     });
 
     expect(bruniai.compareImageToUrl).toHaveBeenCalledWith({
       baseImageSource: "data:image/png;base64,abc",
       previewUrl: "https://example.com/preview",
       page: "/",
+      sectionExplanationMode: "off",
     });
     expect(response.isError).toBeUndefined();
+  });
+
+  it("registers sectionExplanationMode in both tool schemas", async () => {
+    const { createServer } = await import(
+      "../../packages/mcp-server/src/mcp-server.ts"
+    );
+
+    createServer();
+
+    const compareUrlsTool = registeredTools.find(
+      (tool) => tool.name === "compare_urls",
+    );
+    const compareImageToUrlTool = registeredTools.find(
+      (tool) => tool.name === "compare_image_to_url",
+    );
+
+    expect(compareUrlsTool?.config?.inputSchema?.sectionExplanationMode).toBeDefined();
+    expect(
+      compareImageToUrlTool?.config?.inputSchema?.sectionExplanationMode,
+    ).toBeDefined();
   });
 
   it("returns an MCP error payload for invalid compare_image_to_url input", async () => {

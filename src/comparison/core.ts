@@ -24,6 +24,12 @@ export interface ComparisonOptions {
   previewUrl: string;
   /** Page path to compare (e.g., "/" or "/about"). */
   page: string;
+  /**
+   * Reserved for deterministic section explanation flows.
+   * The current URL-to-URL path does not use it directly yet, but the option
+   * is threaded through for API consistency.
+   */
+  sectionExplanationMode?: "fast" | "detailed" | "off";
   /** Directory where images should be saved. */
   imagesDir: string;
   /** Optional PR number for metadata. */

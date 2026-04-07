@@ -71,7 +71,14 @@ function assertSupportedPreviewUrl(input, fieldName) {
   }
 }
 export async function compareImageToUrl(input) {
-  const { baseImageSource, previewUrl, page = "/", prNumber, repository } = input;
+  const {
+    baseImageSource,
+    previewUrl,
+    page = "/",
+    sectionExplanationMode = "fast",
+    prNumber,
+    repository
+  } = input;
   assertSupportedImageSource(baseImageSource, "baseImageSource");
   assertSupportedPreviewUrl(previewUrl, "previewUrl");
   const { performImageToUrlComparison } = await loadImageToUrlComparisonModule();
@@ -92,6 +99,7 @@ export async function compareImageToUrl(input) {
       baseImageSource,
       previewUrl,
       page,
+      sectionExplanationMode,
       imagesDir,
       prNumber,
       repository,
@@ -200,6 +208,43 @@ describe("compareImageToUrl package API", () => {
         hero: { base: "/tmp/hero-base.png", preview: "/tmp/hero-preview.png" },
       },
     });
+  });
+
+  it("forwards sectionExplanationMode to the comparison core", async () => {
+    const performImageToUrlComparison = vi.fn();
+    vi.doMock(imageCoreModulePath, () => ({
+      performImageToUrlComparison,
+    }));
+    vi.doMock(imageCoreSourceModuleUrl, () => ({
+      performImageToUrlComparison,
+    }));
+
+    performImageToUrlComparison.mockResolvedValue({
+      visual_analysis: { status: "pass" },
+      sections_analysis: "sections",
+      base_screenshot: "/tmp/base.png",
+      preview_screenshot: "/tmp/preview.png",
+      diff_image: "/tmp/diff.png",
+      section_screenshots: {},
+      section_results: [],
+      mode: "image-to-url",
+    } as any);
+
+    const { compareImageToUrl } = await import(
+      "../../packages/bruniai/src/compare-image-to-url.ts"
+    );
+
+    await compareImageToUrl({
+      baseImageSource: "data:image/png;base64,abc",
+      previewUrl: "https://example.com/preview",
+      sectionExplanationMode: "off",
+    });
+
+    expect(performImageToUrlComparison).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sectionExplanationMode: "off",
+      }),
+    );
   });
 
   it("rejects unsupported local file path inputs", async () => {
