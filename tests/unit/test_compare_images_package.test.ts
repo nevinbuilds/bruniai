@@ -19,6 +19,7 @@ const packagedDistPath = fileURLToPath(
 );
 
 function createStandaloneCompareImagesModule(distDir: string): void {
+  mkdirSync(distDir, { recursive: true });
   writeFileSync(
     join(distDir, "compare-images.js"),
     `import { join } from "path";
