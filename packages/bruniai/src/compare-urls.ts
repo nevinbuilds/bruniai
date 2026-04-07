@@ -1,34 +1,15 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import type { CompareUrlsInput, CompareUrlsOutput } from "./types.js";
 import { join } from "path";
-import { fileURLToPath } from "url";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
 
 type ComparisonCoreModule = typeof import("../../../dist/comparison/core.js");
 
-async function importRuntimeModule<T>(relativePath: string): Promise<T> {
-  const modulePath = fileURLToPath(new URL(relativePath, import.meta.url));
-  return (await import(modulePath)) as T;
-}
-
-async function loadComparisonCoreModule(): Promise<ComparisonCoreModule> {
-  try {
-    return await importRuntimeModule<ComparisonCoreModule>(
-      "./runtime/comparison/core.js",
-    );
-  } catch {
-    try {
-      return await importRuntimeModule<ComparisonCoreModule>(
-        "../../../dist/comparison/core.js",
-      );
-    } catch {
-      return await importRuntimeModule<ComparisonCoreModule>(
-        "../../../src/comparison/core.js",
-      );
-    }
-  }
-}
+const comparisonCoreModulePromise: Promise<ComparisonCoreModule> =
+  import.meta.url.includes("/packages/bruniai/src/")
+    ? import("../../../dist/comparison/core.js")
+    : import("./runtime/comparison/core.js");
 
 /**
  * Compare two URLs visually and return analysis results.
@@ -59,7 +40,7 @@ export async function compareUrls(
   input: CompareUrlsInput
 ): Promise<CompareUrlsOutput> {
   const { baseUrl, previewUrl, page = "/" } = input;
-  const { performComparison } = await loadComparisonCoreModule();
+  const { performComparison } = await comparisonCoreModulePromise;
 
   // Create temporary directory for images.
   const imagesDir = join(tmpdir(), `bruniai-${Date.now()}`);
