@@ -1,6 +1,6 @@
 {
   "name": "bruniai-mcp-server",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "type": "module",
   "description": "MCP server for BruniAI visual comparison functionality",
   "author": "Joao Garin",
