@@ -243,4 +243,25 @@ describe("performImageToImageComparison", () => {
       }),
     ).rejects.toThrow("Failed to download image: 404 Not Found");
   });
+
+  it("rejects HTTP URLs that return HTML instead of an image", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response("<html></html>", {
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+        },
+      }),
+    ) as typeof globalThis.fetch;
+
+    await expect(
+      performImageToImageComparison({
+        baseImageUrl: "https://example.com/base.png",
+        previewImageUrl: "https://example.com/preview",
+        imagesDir: tempDir,
+      }),
+    ).rejects.toThrow(
+      "URL did not return an image: received text/html; charset=utf-8",
+    );
+  });
 });

@@ -41,9 +41,13 @@ export async function downloadImageToPng(
     throw new Error(`Failed to download image: ${res.status} ${res.statusText}`);
   }
 
+  const contentType = res.headers.get("content-type");
+  if (contentType && !contentType.toLowerCase().startsWith("image/")) {
+    throw new Error(`URL did not return an image: received ${contentType}`);
+  }
+
   const arrayBuffer = await res.arrayBuffer();
   const buf = Buffer.from(arrayBuffer);
   const png = await sharp(buf).png().toBuffer();
   writeFileSync(outputPngPath, png);
 }
-
