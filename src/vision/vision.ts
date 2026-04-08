@@ -1,9 +1,9 @@
-import { Stagehand } from "@browserbasehq/stagehand";
 import { validateAndFixEnums, generateMetadata } from "./utils.js";
 import type {
   VisualAnalysisResult,
   BaseUrlAnalysisResult,
 } from "./types.js";
+import { createLocalStagehand } from "../utils/stagehand.js";
 import {
   analyzeBaseUrlAgent,
   analyzePreviewUrlAgent,
@@ -55,12 +55,7 @@ export async function analyzeImagesWithVision(
   );
 
   // Initialize Stagehand (shared across all agents).
-  const stagehand = new Stagehand({
-    env: "LOCAL",
-    localBrowserLaunchOptions: {
-      headless: true,
-    },
-  });
+  const stagehand = createLocalStagehand();
 
   try {
     await stagehand.init();
@@ -161,12 +156,7 @@ export async function analyzeImagesWithVisionImageMode(
   );
 
   // Initialize Stagehand for image and preview URL analysis.
-  const stagehand = new Stagehand({
-    env: "LOCAL",
-    localBrowserLaunchOptions: {
-      headless: true,
-    },
-  });
+  const stagehand = createLocalStagehand();
 
   try {
     await stagehand.init();

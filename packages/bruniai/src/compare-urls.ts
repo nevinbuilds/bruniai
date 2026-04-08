@@ -1,5 +1,5 @@
-import { Stagehand } from "@browserbasehq/stagehand";
 import type { CompareUrlsInput, CompareUrlsOutput } from "./types.js";
+import { createLocalStagehand } from "./stagehand.js";
 import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
@@ -67,12 +67,7 @@ export async function compareUrls(
   }
 
   // Initialize Stagehand.
-  const stagehand = new Stagehand({
-    env: "LOCAL",
-    localBrowserLaunchOptions: {
-      headless: true,
-    },
-  });
+  const stagehand = createLocalStagehand();
 
   try {
     await stagehand.init();

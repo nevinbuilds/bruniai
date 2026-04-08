@@ -11,10 +11,22 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 
+const stagehandConstructor = vi.fn();
+
 vi.mock("@browserbasehq/stagehand", () => ({
   Stagehand: class MockStagehand {
+    constructor(options: unknown) {
+      stagehandConstructor(options);
+    }
+
     init = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
+  },
+}));
+
+vi.mock("playwright", () => ({
+  chromium: {
+    executablePath: vi.fn(() => process.execPath),
   },
 }));
 
@@ -245,6 +257,43 @@ describe("compareImageToUrl package API", () => {
         sectionExplanationMode: "off",
       }),
     );
+  });
+
+  it("launches Stagehand with a resolved Chromium executable path", async () => {
+    const performImageToUrlComparison = vi.fn().mockResolvedValue({
+      visual_analysis: { status: "pass" },
+      sections_analysis: "sections",
+      base_screenshot: "/tmp/base.png",
+      preview_screenshot: "/tmp/preview.png",
+      diff_image: "/tmp/diff.png",
+      section_screenshots: {},
+      section_results: [],
+      mode: "image-to-url",
+    } as any);
+
+    vi.doMock(imageCoreModulePath, () => ({
+      performImageToUrlComparison,
+    }));
+    vi.doMock(imageCoreSourceModuleUrl, () => ({
+      performImageToUrlComparison,
+    }));
+
+    const { compareImageToUrl } = await import(
+      "../../packages/bruniai/src/compare-image-to-url.ts"
+    );
+
+    await compareImageToUrl({
+      baseImageSource: "data:image/png;base64,abc",
+      previewUrl: "https://example.com/preview",
+    });
+
+    expect(stagehandConstructor).toHaveBeenCalledWith({
+      env: "LOCAL",
+      localBrowserLaunchOptions: {
+        headless: true,
+        executablePath: process.execPath,
+      },
+    });
   });
 
   it("rejects unsupported local file path inputs", async () => {

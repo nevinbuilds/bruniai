@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fileURLToPath } from "url";
 
+const stagehandConstructor = vi.fn();
+
 vi.mock("@browserbasehq/stagehand", () => ({
   Stagehand: class MockStagehand {
+    constructor(options: unknown) {
+      stagehandConstructor(options);
+    }
+
     init = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
+  },
+}));
+
+vi.mock("playwright", () => ({
+  chromium: {
+    executablePath: vi.fn(() => process.execPath),
   },
 }));
 
@@ -20,6 +32,41 @@ describe("compareUrls package API", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+  });
+
+  it("launches Stagehand with a resolved Chromium executable path", async () => {
+    const performComparison = vi.fn().mockResolvedValue({
+      visual_analysis: { status: "pass" },
+      sections_analysis: "sections",
+      base_screenshot: "/tmp/base.png",
+      preview_screenshot: "/tmp/preview.png",
+      diff_image: "/tmp/diff.png",
+      section_screenshots: {},
+    } as any);
+
+    vi.doMock(comparisonCoreModulePath, () => ({
+      performComparison,
+    }));
+    vi.doMock(comparisonCoreSourceModuleUrl, () => ({
+      performComparison,
+    }));
+
+    const { compareUrls } = await import(
+      "../../packages/bruniai/src/compare-urls.ts"
+    );
+
+    await compareUrls({
+      baseUrl: "https://example.com/base",
+      previewUrl: "https://example.com/preview",
+    });
+
+    expect(stagehandConstructor).toHaveBeenCalledWith({
+      env: "LOCAL",
+      localBrowserLaunchOptions: {
+        headless: true,
+        executablePath: process.execPath,
+      },
+    });
   });
 
   it("forwards sectionExplanationMode to the comparison core", async () => {
