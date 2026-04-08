@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^138.0.2",
     "@browserbasehq/stagehand": "^3.0.1",
     "@modelcontextprotocol/sdk": "^1.21.1",
     "@playwright/mcp": "^0.0.13",

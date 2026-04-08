@@ -70,7 +70,11 @@ This guide helps you resolve common issues that may arise while using the Visual
    ```bash
    npx playwright install-deps chromium
    ```
-3. Note: The app uses Stagehand for browser automation, which requires Playwright browsers to be installed.
+3. If you already have a system Chrome/Chromium binary, you can also point Bruni at it with:
+   ```bash
+   export CHROME_PATH=/absolute/path/to/chrome
+   ```
+4. Note: The app uses Stagehand for browser automation, which requires a resolvable Chromium/Chrome executable. The Vercel MCP app uses `@sparticuz/chromium` instead of bundling Playwright's browser binaries.
 
 ### 2. Runtime Issues
 

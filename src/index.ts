@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { Stagehand } from "@browserbasehq/stagehand";
 import { fetchPrMetadata } from "./github/pr-metadata.js";
 import {
   getPrNumberFromEvent,
@@ -17,6 +16,7 @@ import {
 } from "./reporter/index.js";
 import type { ComparisonMode } from "./reporter/index.js";
 import type { SectionVisualResult } from "./reporter/index.js";
+import { createLocalStagehand } from "./utils/stagehand.js";
 import { ensureViewportSize } from "./utils/window.js";
 import type { VisualAnalysisResult } from "./vision/types.js";
 
@@ -69,13 +69,7 @@ async function main() {
   console.log("Repository:", repo);
   console.log("PR Number:", prNumber);
 
-  const stagehand = new Stagehand({
-    env: "LOCAL",
-    disablePino: true,
-    localBrowserLaunchOptions: {
-      headless: true,
-    },
-  });
+  const stagehand = await createLocalStagehand();
 
   const GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE || process.cwd();
   const path = await import("path");

@@ -37,6 +37,7 @@ This guide will help you set up and start using the Visual Regression Testing to
     ```
 
     **Note**: Playwright browsers are required because Stagehand uses Playwright under the hood for browser automation.
+    The Vercel MCP app uses `@sparticuz/chromium` instead of bundling the full Playwright browser payload.
 
 5.  **Set Up Environment Variables**
     Create a `.env` file in the root directory and add your OpenAI API key:
