@@ -1,8 +1,8 @@
-import { Stagehand } from "@browserbasehq/stagehand";
 import type {
   CompareImageToUrlInput,
   CompareImageToUrlOutput,
 } from "./types.js";
+import { createLocalStagehand } from "./stagehand.js";
 import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
 import { tmpdir } from "os";
@@ -100,13 +100,7 @@ export async function compareImageToUrl(
     mkdirSync(imagesDir, { recursive: true });
   }
 
-  const stagehand = new Stagehand({
-    env: "LOCAL",
-    disablePino: true,
-    localBrowserLaunchOptions: {
-      headless: true,
-    },
-  });
+  const stagehand = createLocalStagehand();
 
   try {
     await stagehand.init();

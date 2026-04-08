@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "npm --prefix ../.. run build:mcp",
+    "prebuild": "PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium && npm --prefix ../.. run build:mcp",
     "build": "next build",
     "start": "next start"
   },
