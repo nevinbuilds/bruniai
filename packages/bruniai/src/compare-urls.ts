@@ -69,6 +69,7 @@ export async function compareUrls(
   // Initialize Stagehand.
   const stagehand = new Stagehand({
     env: "LOCAL",
+    disablePino: true,
     localBrowserLaunchOptions: {
       headless: true,
     },

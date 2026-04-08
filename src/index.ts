@@ -71,6 +71,7 @@ async function main() {
 
   const stagehand = new Stagehand({
     env: "LOCAL",
+    disablePino: true,
     localBrowserLaunchOptions: {
       headless: true,
     },

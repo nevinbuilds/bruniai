@@ -102,6 +102,7 @@ export async function compareImageToUrl(
 
   const stagehand = new Stagehand({
     env: "LOCAL",
+    disablePino: true,
     localBrowserLaunchOptions: {
       headless: true,
     },
