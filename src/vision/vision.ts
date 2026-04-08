@@ -57,6 +57,7 @@ export async function analyzeImagesWithVision(
   // Initialize Stagehand (shared across all agents).
   const stagehand = new Stagehand({
     env: "LOCAL",
+    disablePino: true,
     localBrowserLaunchOptions: {
       headless: true,
     },
@@ -163,6 +164,7 @@ export async function analyzeImagesWithVisionImageMode(
   // Initialize Stagehand for image and preview URL analysis.
   const stagehand = new Stagehand({
     env: "LOCAL",
+    disablePino: true,
     localBrowserLaunchOptions: {
       headless: true,
     },

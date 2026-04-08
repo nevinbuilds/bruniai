@@ -11,8 +11,15 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 
+const { stagehandConstructorMock } = vi.hoisted(() => ({
+  stagehandConstructorMock: vi.fn(),
+}));
+
 vi.mock("@browserbasehq/stagehand", () => ({
   Stagehand: class MockStagehand {
+    constructor(options: unknown) {
+      stagehandConstructorMock(options);
+    }
     init = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
   },
@@ -88,6 +95,7 @@ export async function compareImageToUrl(input) {
   }
   const stagehand = new Stagehand({
     env: "LOCAL",
+    disablePino: true,
     localBrowserLaunchOptions: {
       headless: true,
     },
@@ -161,6 +169,7 @@ describe("compareImageToUrl package API", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    stagehandConstructorMock.mockClear();
   });
 
   it("returns the same top-level shape as compareUrls", async () => {
@@ -243,6 +252,43 @@ describe("compareImageToUrl package API", () => {
     expect(performImageToUrlComparison).toHaveBeenCalledWith(
       expect.objectContaining({
         sectionExplanationMode: "off",
+      }),
+    );
+  });
+
+  it("disables pino when creating Stagehand", async () => {
+    const performImageToUrlComparison = vi.fn();
+    vi.doMock(imageCoreModulePath, () => ({
+      performImageToUrlComparison,
+    }));
+    vi.doMock(imageCoreSourceModuleUrl, () => ({
+      performImageToUrlComparison,
+    }));
+
+    performImageToUrlComparison.mockResolvedValue({
+      visual_analysis: { status: "pass" },
+      sections_analysis: "sections",
+      base_screenshot: "/tmp/base.png",
+      preview_screenshot: "/tmp/preview.png",
+      diff_image: "/tmp/diff.png",
+      section_screenshots: {},
+      section_results: [],
+      mode: "image-to-url",
+    } as any);
+
+    const { compareImageToUrl } = await import(
+      "../../packages/bruniai/src/compare-image-to-url.ts"
+    );
+
+    await compareImageToUrl({
+      baseImageSource: "https://example.com/base.png",
+      previewUrl: "https://example.com/preview",
+    });
+
+    expect(stagehandConstructorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: "LOCAL",
+        disablePino: true,
       }),
     );
   });
