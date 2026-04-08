@@ -55,7 +55,7 @@ export async function analyzeImagesWithVision(
   );
 
   // Initialize Stagehand (shared across all agents).
-  const stagehand = createLocalStagehand();
+  const stagehand = await createLocalStagehand();
 
   try {
     await stagehand.init();
@@ -156,7 +156,7 @@ export async function analyzeImagesWithVisionImageMode(
   );
 
   // Initialize Stagehand for image and preview URL analysis.
-  const stagehand = createLocalStagehand();
+  const stagehand = await createLocalStagehand();
 
   try {
     await stagehand.init();

@@ -33,11 +33,11 @@ This guide will help you set up and start using the Visual Regression Testing to
 4.  **Install Playwright Browsers**
 
     ```bash
-    PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium
+    npx playwright install --with-deps chromium
     ```
 
     **Note**: Playwright browsers are required because Stagehand uses Playwright under the hood for browser automation.
-    Installing with `PLAYWRIGHT_BROWSERS_PATH=0` keeps Chromium inside the project so it can also be packaged for deployments such as Vercel.
+    The Vercel MCP app uses `@sparticuz/chromium` instead of bundling the full Playwright browser payload.
 
 5.  **Set Up Environment Variables**
     Create a `.env` file in the root directory and add your OpenAI API key:

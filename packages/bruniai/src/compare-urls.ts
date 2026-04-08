@@ -67,7 +67,7 @@ export async function compareUrls(
   }
 
   // Initialize Stagehand.
-  const stagehand = createLocalStagehand();
+  const stagehand = await createLocalStagehand();
 
   try {
     await stagehand.init();

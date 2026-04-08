@@ -28,9 +28,9 @@ Implementation note:
    publishable `bruniai` and `bruniai-mcp-server` `dist` output before
    `next build`. This is required because the app imports those workspace
    packages by name and their published type declarations live under `dist/`.
-5. The prebuild step also installs Playwright Chromium with
-   `PLAYWRIGHT_BROWSERS_PATH=0`, so the deployed MCP route does not depend on
-   a system Chrome binary being present on Vercel.
+5. The deployed MCP route resolves Chromium from `@sparticuz/chromium` on
+   Vercel, so the function does not need to bundle Playwright's full browser
+   payload.
 6. Configure the required environment variables.
 7. Add the custom domain `mcp.brunivisual.com`.
 8. Point your MCP client at `https://mcp.brunivisual.com/mcp`.

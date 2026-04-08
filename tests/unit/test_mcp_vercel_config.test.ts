@@ -9,8 +9,6 @@ describe("mcp vercel next config", () => {
     expect(nextConfig.outputFileTracingIncludes).toMatchObject({
       "/api/mcp": expect.arrayContaining([
         "./node_modules/bruniai/dist/runtime/**/*",
-        "./node_modules/playwright-core/.local-browsers/**/*",
-        "./node_modules/playwright/.local-browsers/**/*",
       ]),
     });
   });

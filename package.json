@@ -25,6 +25,7 @@
     "release:dry-run": "node scripts/release.js --dry-run"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^138.0.2",
     "@browserbasehq/stagehand": "^3.0.1",
     "openai": "^4.77.0",
     "@playwright/mcp": "^0.0.13",

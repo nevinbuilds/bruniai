@@ -100,7 +100,7 @@ export async function compareImageToUrl(
     mkdirSync(imagesDir, { recursive: true });
   }
 
-  const stagehand = createLocalStagehand();
+  const stagehand = await createLocalStagehand();
 
   try {
     await stagehand.init();

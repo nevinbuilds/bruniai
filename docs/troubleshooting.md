@@ -64,7 +64,7 @@ This guide helps you resolve common issues that may arise while using the Visual
 
 1. Install Playwright browsers (required by Stagehand):
    ```bash
-   PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium
+   npx playwright install --with-deps chromium
    ```
 2. If on Linux, ensure system dependencies are installed:
    ```bash
@@ -74,7 +74,7 @@ This guide helps you resolve common issues that may arise while using the Visual
    ```bash
    export CHROME_PATH=/absolute/path/to/chrome
    ```
-4. Note: The app uses Stagehand for browser automation, which requires a resolvable Chromium/Chrome executable. The Vercel MCP app now installs Playwright Chromium during `prebuild`.
+4. Note: The app uses Stagehand for browser automation, which requires a resolvable Chromium/Chrome executable. The Vercel MCP app uses `@sparticuz/chromium` instead of bundling Playwright's browser binaries.
 
 ### 2. Runtime Issues
 

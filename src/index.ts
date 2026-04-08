@@ -69,7 +69,7 @@ async function main() {
   console.log("Repository:", repo);
   console.log("PR Number:", prNumber);
 
-  const stagehand = createLocalStagehand();
+  const stagehand = await createLocalStagehand();
 
   const GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE || process.cwd();
   const path = await import("path");

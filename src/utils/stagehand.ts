@@ -45,6 +45,47 @@ function resolvePlaywrightExecutablePath(): string | undefined {
   return undefined;
 }
 
+interface ServerlessChromiumModule {
+  args?: string[];
+  executablePath?: () => Promise<string>;
+  default?: ServerlessChromiumImplementation;
+}
+
+interface ServerlessChromiumImplementation {
+  args?: string[];
+  executablePath?: () => Promise<string>;
+}
+
+function extractServerlessChromium(
+  module: ServerlessChromiumModule,
+): ServerlessChromiumImplementation {
+  return module.default ?? module;
+}
+
+async function resolveServerlessChromiumLaunchOptions(): Promise<LaunchOptions | null> {
+  if (!process.env.VERCEL) {
+    return null;
+  }
+
+  try {
+    const chromiumModule = extractServerlessChromium(
+      (await import("@sparticuz/chromium")) as ServerlessChromiumModule,
+    );
+    const executablePath = await chromiumModule.executablePath?.();
+    if (!executablePath) {
+      return null;
+    }
+
+    return {
+      headless: true,
+      executablePath,
+      args: chromiumModule.args,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function resolveChromiumExecutablePath(): string | undefined {
   const envPath = firstExistingPath([
     process.env.CHROME_PATH,
@@ -64,12 +105,17 @@ function resolveChromiumExecutablePath(): string | undefined {
   return firstExistingPath(COMMON_BROWSER_PATHS[platform()] || []);
 }
 
-function getLocalBrowserLaunchOptions(): LaunchOptions {
+async function getLocalBrowserLaunchOptions(): Promise<LaunchOptions> {
+  const serverlessOptions = await resolveServerlessChromiumLaunchOptions();
+  if (serverlessOptions) {
+    return serverlessOptions;
+  }
+
   const executablePath = resolveChromiumExecutablePath();
 
   if (!executablePath) {
     throw new Error(
-      "Unable to find a Chromium/Chrome executable. Set CHROME_PATH or install Playwright Chromium with `PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium`.",
+      "Unable to find a Chromium/Chrome executable. Set CHROME_PATH, install Playwright Chromium locally, or provide @sparticuz/chromium in serverless environments.",
     );
   }
 
@@ -79,10 +125,10 @@ function getLocalBrowserLaunchOptions(): LaunchOptions {
   };
 }
 
-export function createLocalStagehand(): Stagehand {
+export async function createLocalStagehand(): Promise<Stagehand> {
   return new Stagehand({
     env: "LOCAL",
     disablePino: true,
-    localBrowserLaunchOptions: getLocalBrowserLaunchOptions(),
+    localBrowserLaunchOptions: await getLocalBrowserLaunchOptions(),
   });
 }
