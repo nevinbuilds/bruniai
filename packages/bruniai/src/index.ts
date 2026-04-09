@@ -7,6 +7,8 @@
 
 export { compareUrls } from "./compare-urls.js";
 export { compareImageToUrl } from "./compare-image-to-url.js";
+export { sendReport } from "./report.js";
+export type { SendReportInput } from "./report.js";
 export type {
   CompareImageToUrlInput,
   CompareImageToUrlOutput,
