@@ -1,5 +1,7 @@
 import type { CompareUrlsOutput } from "./types.js";
-import type { ComparisonMode } from "../../../dist/reporter/types.js";
+
+/** Comparison mode matching the reporter's ComparisonMode type. */
+type ComparisonMode = "url-to-url" | "image-to-url" | "image-to-image";
 
 type ReporterModule = typeof import("../../../dist/reporter/index.js");
 
