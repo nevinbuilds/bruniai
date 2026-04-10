@@ -25,6 +25,8 @@ packages/*/src/**/*.d.ts.map
 !packages/bruniai/src/runtime/
 !packages/bruniai/src/runtime/comparison/
 !packages/bruniai/src/runtime/comparison/*.d.ts
+!packages/bruniai/src/runtime/reporter/
+!packages/bruniai/src/runtime/reporter/*.d.ts
 
 # testing
 /coverage
