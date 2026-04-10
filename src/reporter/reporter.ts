@@ -1,5 +1,22 @@
 import type { MultiPageReportData } from "./types.js";
 
+function summarizeToken(token: string) {
+  const trimmed = token.trim();
+  const normalized = trimmed.replace(/^Bearer\s+/i, "");
+
+  return {
+    present: token.length > 0,
+    length: token.length,
+    trimmedLength: trimmed.length,
+    hasLeadingOrTrailingWhitespace: token !== trimmed,
+    startsWithBearerPrefix: /^Bearer\s+/i.test(trimmed),
+    normalizedLength: normalized.length,
+    jwtSegmentCount: normalized ? normalized.split(".").length : 0,
+    prefix: normalized ? normalized.slice(0, 8) : "",
+    suffix: normalized ? normalized.slice(-6) : "",
+  };
+}
+
 /**
  * BruniReporter class for sending multi-page reports to the Bruni API.
  */
@@ -17,6 +34,7 @@ export class BruniReporter {
     this.token = token;
     this.apiUrl = apiUrl;
     console.log(`Bruni reporter initialized with endpoint: ${apiUrl}`);
+    console.log("[BruniReporter] Token diagnostics:", summarizeToken(token));
   }
 
   /**
@@ -69,6 +87,16 @@ export class BruniReporter {
       }
 
       try {
+        console.log(
+          `[BruniReporter] POST ${this.apiUrl} chunk ${chunkIndex + 1}/${
+            chunks.length
+          } auth diagnostics:`,
+          {
+            authorizationMode: "Bearer <token>",
+            token: summarizeToken(this.token),
+          }
+        );
+
         const response = await fetch(this.apiUrl, {
           method: "POST",
           headers: {
@@ -83,6 +111,10 @@ export class BruniReporter {
 
         if (!response.ok) {
           console.error(`API Error: ${response.status} - ${responseText}`);
+          console.error("[BruniReporter] Failed auth diagnostics:", {
+            status: response.status,
+            token: summarizeToken(this.token),
+          });
           throw new Error(
             `Failed to send multi-page report: ${response.status} - ${responseText}`
           );

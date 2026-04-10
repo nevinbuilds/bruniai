@@ -161,6 +161,24 @@ function buildErrorResponse(error: unknown) {
   };
 }
 
+function summarizeToken(token: string | undefined | null) {
+  const raw = token ?? "";
+  const trimmed = raw.trim();
+  const normalized = trimmed.replace(/^Bearer\s+/i, "");
+
+  return {
+    present: raw.length > 0,
+    length: raw.length,
+    trimmedLength: trimmed.length,
+    hasLeadingOrTrailingWhitespace: raw !== trimmed,
+    startsWithBearerPrefix: /^Bearer\s+/i.test(trimmed),
+    normalizedLength: normalized.length,
+    jwtSegmentCount: normalized ? normalized.split(".").length : 0,
+    prefix: normalized ? normalized.slice(0, 8) : "",
+    suffix: normalized ? normalized.slice(-6) : "",
+  };
+}
+
 async function tryGetReportUrl(
   comparisonService: ComparisonService,
   result: unknown,
@@ -172,6 +190,7 @@ async function tryGetReportUrl(
   repository?: string,
 ): Promise<string | null> {
   const bruniToken = process.env.BRUNI_TOKEN;
+  console.log("[MCP] Report token diagnostics:", summarizeToken(bruniToken));
   if (!bruniToken) {
     return null;
   }
