@@ -23,14 +23,14 @@
   },
   "dependencies": {
     "@sparticuz/chromium": "^138.0.2",
-    "@browserbasehq/stagehand": "^3.0.1",
+    "@browserbasehq/stagehand": "^3.2.1",
     "dotenv": "^16.0.0",
     "pixelmatch": "^7.1.0",
-    "playwright": "^1.42.1",
+    "playwright": "^1.59.1",
     "pngjs": "^7.0.0",
     "sharp": "^0.34.5",
     "uuid": "^10.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",
@@ -41,6 +41,6 @@
     "typescript": "^5.5.4"
   },
   "peerDependencies": {
-    "@browserbasehq/stagehand": "^3.0.1"
+    "@browserbasehq/stagehand": "^3.2.1"
   }
 }
