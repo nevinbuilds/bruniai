@@ -9,6 +9,15 @@
     "packages/*",
     "apps/*"
   ],
+  "overrides": {
+    "ajv": "8.18.0",
+    "basic-ftp": "5.2.2",
+    "brace-expansion": "2.0.3",
+    "glob": "10.5.0",
+    "jws": "4.0.1",
+    "langsmith": "0.4.6",
+    "minimatch": "9.0.9"
+  },
   "scripts": {
     "build": "rm -rf images dist tsconfig.tsbuildinfo && tsc",
     "build:mcp": "npm --prefix packages/mcp-server run build",
@@ -26,27 +35,27 @@
   },
   "dependencies": {
     "@sparticuz/chromium": "^138.0.2",
-    "@browserbasehq/stagehand": "^3.0.1",
+    "@browserbasehq/stagehand": "^3.2.1",
     "openai": "^4.77.0",
-    "@playwright/mcp": "^0.0.13",
+    "@playwright/mcp": "^0.0.70",
     "dotenv": "^16.0.0",
     "pixelmatch": "^7.1.0",
-    "playwright": "^1.42.1",
+    "playwright": "^1.59.1",
     "pngjs": "^7.0.0",
     "sharp": "^0.34.5",
     "uuid": "^10.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@playwright/test": "^1.51.1",
+    "@playwright/test": "^1.59.1",
     "@types/node": "^20.11.24",
     "@types/pixelmatch": "^5.2.6",
     "@types/pngjs": "^6.0.5",
     "@types/uuid": "^10.0.0",
-    "@vitest/coverage-v8": "^4.0.8",
-    "@vitest/ui": "^4.0.8",
+    "@vitest/coverage-v8": "^4.1.4",
+    "@vitest/ui": "^4.1.4",
     "tsx": "^4.7.0",
     "typescript": "^5.5.4",
-    "vitest": "^4.0.8"
+    "vitest": "^4.1.4"
   }
 }
