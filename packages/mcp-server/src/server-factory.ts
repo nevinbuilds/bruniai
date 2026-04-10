@@ -6,6 +6,60 @@ import type {
   ComparisonService,
 } from "./types.js";
 
+const compareUrlsInputSchema = {
+  baseUrl: z.string().describe("Base/reference URL to compare against"),
+  previewUrl: z.string().describe("Preview/changed URL to analyze"),
+  page: z
+    .string()
+    .default("/")
+    .describe("Page path to compare (default: '/')")
+    .optional(),
+  sectionExplanationMode: z
+    .enum(["fast", "detailed", "off"])
+    .default("fast")
+    .describe(
+      "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
+    )
+    .optional(),
+  prNumber: z
+    .string()
+    .describe("Optional PR number for report metadata")
+    .optional(),
+  repository: z
+    .string()
+    .describe("Optional repository name for report metadata")
+    .optional(),
+};
+
+const compareImageToUrlInputSchema = {
+  baseImageSource: z
+    .string()
+    .describe(
+      "Base/reference image source as an HTTP(S) image URL or data:image/...",
+    ),
+  previewUrl: z.string().describe("Preview/changed webpage URL to analyze"),
+  page: z
+    .string()
+    .default("/")
+    .describe("Page path to compare on the preview URL (default: '/')")
+    .optional(),
+  sectionExplanationMode: z
+    .enum(["fast", "detailed", "off"])
+    .default("fast")
+    .describe(
+      "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
+    )
+    .optional(),
+  prNumber: z
+    .string()
+    .describe("Optional PR number for report metadata")
+    .optional(),
+  repository: z
+    .string()
+    .describe("Optional repository name for report metadata")
+    .optional(),
+};
+
 type VisualAnalysisOutput = {
   status?: string;
   critical_issues?: {
@@ -66,7 +120,7 @@ function buildSummaryResponse(result: unknown, reportUrl: string | null) {
       text += `${i + 1}. ${highlight}\n`;
     });
   } else {
-    text += `No issues found\n`;
+    text += "No issues found\n";
   }
 
   if (summary) {
@@ -239,7 +293,16 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
     console.error("[MCP Error]", error);
   };
 
-  server.registerTool(
+  const registerTool = server.registerTool.bind(server) as (
+    name: string,
+    config: {
+      description: string;
+      inputSchema: unknown;
+    },
+    cb: (args: unknown) => Promise<unknown>,
+  ) => unknown;
+
+  registerTool(
     "compare_urls",
     {
       description:
@@ -248,35 +311,13 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
         "and performs AI-powered visual analysis. Returns a condensed summary " +
         "of issues found. When BRUNI_TOKEN is set the full report is uploaded " +
         "and a link is included in the response.",
-      inputSchema: {
-        baseUrl: z.string().describe("Base/reference URL to compare against"),
-        previewUrl: z.string().describe("Preview/changed URL to analyze"),
-        page: z
-          .string()
-          .default("/")
-          .describe("Page path to compare (default: '/')")
-          .optional(),
-        sectionExplanationMode: z
-          .enum(["fast", "detailed", "off"])
-          .default("fast")
-          .describe(
-            "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
-          )
-          .optional(),
-        prNumber: z
-          .string()
-          .describe("Optional PR number for report metadata")
-          .optional(),
-        repository: z
-          .string()
-          .describe("Optional repository name for report metadata")
-          .optional(),
-      },
+      inputSchema: compareUrlsInputSchema,
     },
-    async (args) => handleCompareUrls(comparisonService, args),
+    async (args) =>
+      handleCompareUrls(comparisonService, args as CompareUrlsRequest),
   );
 
-  server.registerTool(
+  registerTool(
     "compare_image_to_url",
     {
       description:
@@ -285,38 +326,10 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
         "analyzes sections, and performs AI-powered section explanation where available. " +
         "Returns a condensed summary of issues found. When BRUNI_TOKEN is set the full report " +
         "is uploaded and a link is included in the response.",
-      inputSchema: {
-        baseImageSource: z
-          .string()
-          .describe(
-            "Base/reference image source as an HTTP(S) image URL or data:image/...",
-          ),
-        previewUrl: z
-          .string()
-          .describe("Preview/changed webpage URL to analyze"),
-        page: z
-          .string()
-          .default("/")
-          .describe("Page path to compare on the preview URL (default: '/')")
-          .optional(),
-        sectionExplanationMode: z
-          .enum(["fast", "detailed", "off"])
-          .default("fast")
-          .describe(
-            "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
-          )
-          .optional(),
-        prNumber: z
-          .string()
-          .describe("Optional PR number for report metadata")
-          .optional(),
-        repository: z
-          .string()
-          .describe("Optional repository name for report metadata")
-          .optional(),
-      },
+      inputSchema: compareImageToUrlInputSchema,
     },
-    async (args) => handleCompareImageToUrl(comparisonService, args),
+    async (args) =>
+      handleCompareImageToUrl(comparisonService, args as CompareImageToUrlRequest),
   );
 
   return server;
