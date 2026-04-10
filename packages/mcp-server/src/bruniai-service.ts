@@ -1,8 +1,9 @@
-import type { ComparisonService } from "./types.js";
+import type { ComparisonService, SendReportRequest } from "./types.js";
 
 type BruniaiModule = {
   compareUrls: ComparisonService["compareUrls"];
   compareImageToUrl: ComparisonService["compareImageToUrl"];
+  sendReport?: (input: SendReportRequest) => Promise<string | null>;
 };
 
 const BRUNIAI_MODULE_ID = "bruniai";
@@ -30,5 +31,12 @@ export const bruniaiComparisonService: ComparisonService = {
   async compareImageToUrl(input) {
     const { compareImageToUrl } = await loadBruniaiModule();
     return compareImageToUrl(input);
+  },
+  async sendReport(input) {
+    const mod = await loadBruniaiModule();
+    if (!mod.sendReport) {
+      throw new Error("sendReport is not available in the bruniai module");
+    }
+    return mod.sendReport(input);
   },
 };

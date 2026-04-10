@@ -1,6 +1,6 @@
 {
   "name": "bruniai-mcp-server",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "type": "module",
   "description": "MCP server for BruniAI visual comparison functionality",
   "author": "Joao Garin",
@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "bruniai": "0.1.16",
+    "bruniai": "0.1.17",
     "zod": "^3.25.76"
   },
   "devDependencies": {

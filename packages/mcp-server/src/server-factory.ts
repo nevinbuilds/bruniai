@@ -21,6 +21,14 @@ const compareUrlsInputSchema = {
       "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
     )
     .optional(),
+  prNumber: z
+    .string()
+    .describe("Optional PR number for report metadata")
+    .optional(),
+  repository: z
+    .string()
+    .describe("Optional repository name for report metadata")
+    .optional(),
 };
 
 const compareImageToUrlInputSchema = {
@@ -42,14 +50,92 @@ const compareImageToUrlInputSchema = {
       "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
     )
     .optional(),
+  prNumber: z
+    .string()
+    .describe("Optional PR number for report metadata")
+    .optional(),
+  repository: z
+    .string()
+    .describe("Optional repository name for report metadata")
+    .optional(),
 };
 
-function buildSuccessResponse(payload: unknown) {
+type VisualAnalysisOutput = {
+  status?: string;
+  critical_issues?: {
+    sections?: Array<{ name: string; status: string; description: string }>;
+    summary?: string;
+  };
+  visual_changes?: {
+    diff_highlights?: string[];
+    conclusion?: string;
+  };
+  conclusion?: {
+    summary?: string;
+    recommendation?: string;
+  };
+};
+
+type ComparisonOutput = {
+  status?: string;
+  visual_analysis?: VisualAnalysisOutput;
+  sections_analysis?: string;
+};
+
+function buildSummaryResponse(result: unknown, reportUrl: string | null) {
+  const output = result as ComparisonOutput;
+  const status =
+    output?.status ?? output?.visual_analysis?.status ?? "unknown";
+
+  const statusEmoji =
+    status === "pass" ? "✅" : status === "warning" ? "⚠️" : "❌";
+  const statusLabel =
+    status === "pass"
+      ? "Pass"
+      : status === "warning"
+        ? "Warning"
+        : status === "fail"
+          ? "Fail"
+          : "Unknown";
+
+  const criticalSections =
+    output?.visual_analysis?.critical_issues?.sections ?? [];
+  const diffHighlights =
+    output?.visual_analysis?.visual_changes?.diff_highlights ?? [];
+  const summary = output?.visual_analysis?.conclusion?.summary ?? "";
+
+  let text = `${statusEmoji} Compared design vs implementation\n\n`;
+  text += `Status: ${statusLabel}\n`;
+
+  if (criticalSections.length > 0) {
+    text += `Issues found: ${criticalSections.length}\n\n`;
+    text += `Top issues:\n`;
+    criticalSections.slice(0, 5).forEach((section, i) => {
+      text += `${i + 1}. ${section.name} – ${section.description}\n`;
+    });
+  } else if (diffHighlights.length > 0) {
+    text += `Visual changes detected: ${diffHighlights.length}\n\n`;
+    text += `Changes:\n`;
+    diffHighlights.slice(0, 3).forEach((highlight, i) => {
+      text += `${i + 1}. ${highlight}\n`;
+    });
+  } else {
+    text += "No issues found\n";
+  }
+
+  if (summary) {
+    text += `\nSummary: ${summary}\n`;
+  }
+
+  if (reportUrl) {
+    text += `\n→ Open visual report: ${reportUrl}`;
+  }
+
   return {
     content: [
       {
         type: "text" as const,
-        text: JSON.stringify(payload, null, 2),
+        text,
       },
     ],
   };
@@ -75,6 +161,39 @@ function buildErrorResponse(error: unknown) {
   };
 }
 
+async function tryGetReportUrl(
+  comparisonService: ComparisonService,
+  result: unknown,
+  page: string,
+  baseUrl: string,
+  previewUrl: string,
+  comparisonMode: "url-to-url" | "image-to-url" | "image-to-image",
+  prNumber?: string,
+  repository?: string,
+): Promise<string | null> {
+  const bruniToken = process.env.BRUNI_TOKEN;
+  if (!bruniToken) {
+    return null;
+  }
+
+  try {
+    return await comparisonService.sendReport({
+      result,
+      page,
+      baseUrl,
+      previewUrl,
+      bruniToken,
+      bruniApiUrl: process.env.BRUNI_API_URL,
+      comparisonMode,
+      prNumber,
+      repository,
+    });
+  } catch (error) {
+    console.error("[MCP] Failed to send report:", error);
+    return null;
+  }
+}
+
 async function handleCompareUrls(
   comparisonService: ComparisonService,
   args: CompareUrlsRequest,
@@ -88,13 +207,29 @@ async function handleCompareUrls(
       throw new Error("OPENAI_API_KEY environment variable is required");
     }
 
+    const page = args.page ?? "/";
+
     const result = await comparisonService.compareUrls({
       baseUrl: args.baseUrl,
       previewUrl: args.previewUrl,
-      page: args.page || "/",
-      sectionExplanationMode: args.sectionExplanationMode || "fast",
+      page,
+      sectionExplanationMode: args.sectionExplanationMode ?? "fast",
+      prNumber: args.prNumber,
+      repository: args.repository,
     });
-    return buildSuccessResponse(result);
+
+    const reportUrl = await tryGetReportUrl(
+      comparisonService,
+      result,
+      page,
+      args.baseUrl,
+      args.previewUrl,
+      "url-to-url",
+      args.prNumber,
+      args.repository,
+    );
+
+    return buildSummaryResponse(result, reportUrl);
   } catch (error) {
     return buildErrorResponse(error);
   }
@@ -113,13 +248,29 @@ async function handleCompareImageToUrl(
       throw new Error("OPENAI_API_KEY environment variable is required");
     }
 
+    const page = args.page ?? "/";
+
     const result = await comparisonService.compareImageToUrl({
       baseImageSource: args.baseImageSource,
       previewUrl: args.previewUrl,
-      page: args.page || "/",
-      sectionExplanationMode: args.sectionExplanationMode || "fast",
+      page,
+      sectionExplanationMode: args.sectionExplanationMode ?? "fast",
+      prNumber: args.prNumber,
+      repository: args.repository,
     });
-    return buildSuccessResponse(result);
+
+    const reportUrl = await tryGetReportUrl(
+      comparisonService,
+      result,
+      page,
+      args.baseImageSource,
+      args.previewUrl,
+      "image-to-url",
+      args.prNumber,
+      args.repository,
+    );
+
+    return buildSummaryResponse(result, reportUrl);
   } catch (error) {
     return buildErrorResponse(error);
   }
@@ -157,8 +308,9 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
       description:
         "Compare two URLs visually and analyze differences. " +
         "Takes screenshots, generates diff images, analyzes sections, " +
-        "and performs AI-powered visual analysis. Returns analysis " +
-        "results with paths to generated images.",
+        "and performs AI-powered visual analysis. Returns a condensed summary " +
+        "of issues found. When BRUNI_TOKEN is set the full report is uploaded " +
+        "and a link is included in the response.",
       inputSchema: compareUrlsInputSchema,
     },
     async (args) =>
@@ -172,7 +324,8 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
         "Compare a base image source against a preview URL visually and analyze differences. " +
         "Captures the preview page, normalizes the base image source, generates diff images, " +
         "analyzes sections, and performs AI-powered section explanation where available. " +
-        "Returns analysis results with paths to generated images.",
+        "Returns a condensed summary of issues found. When BRUNI_TOKEN is set the full report " +
+        "is uploaded and a link is included in the response.",
       inputSchema: compareImageToUrlInputSchema,
     },
     async (args) =>
