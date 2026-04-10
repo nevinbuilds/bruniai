@@ -6,7 +6,7 @@ import type {
   ComparisonService,
 } from "./types.js";
 
-const compareUrlsInputSchema = z.object({
+const compareUrlsInputSchema = {
   baseUrl: z.string().describe("Base/reference URL to compare against"),
   previewUrl: z.string().describe("Preview/changed URL to analyze"),
   page: z
@@ -21,9 +21,9 @@ const compareUrlsInputSchema = z.object({
       "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
     )
     .optional(),
-});
+};
 
-const compareImageToUrlInputSchema = z.object({
+const compareImageToUrlInputSchema = {
   baseImageSource: z
     .string()
     .describe(
@@ -42,7 +42,7 @@ const compareImageToUrlInputSchema = z.object({
       "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
     )
     .optional(),
-});
+};
 
 function buildSuccessResponse(payload: unknown) {
   return {
