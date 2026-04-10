@@ -6,6 +6,44 @@ import type {
   ComparisonService,
 } from "./types.js";
 
+const compareUrlsInputSchema = z.object({
+  baseUrl: z.string().describe("Base/reference URL to compare against"),
+  previewUrl: z.string().describe("Preview/changed URL to analyze"),
+  page: z
+    .string()
+    .default("/")
+    .describe("Page path to compare (default: '/')")
+    .optional(),
+  sectionExplanationMode: z
+    .enum(["fast", "detailed", "off"])
+    .default("fast")
+    .describe(
+      "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
+    )
+    .optional(),
+});
+
+const compareImageToUrlInputSchema = z.object({
+  baseImageSource: z
+    .string()
+    .describe(
+      "Base/reference image source as an HTTP(S) image URL or data:image/...",
+    ),
+  previewUrl: z.string().describe("Preview/changed webpage URL to analyze"),
+  page: z
+    .string()
+    .default("/")
+    .describe("Page path to compare on the preview URL (default: '/')")
+    .optional(),
+  sectionExplanationMode: z
+    .enum(["fast", "detailed", "off"])
+    .default("fast")
+    .describe(
+      "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
+    )
+    .optional(),
+});
+
 function buildSuccessResponse(payload: unknown) {
   return {
     content: [
@@ -104,7 +142,16 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
     console.error("[MCP Error]", error);
   };
 
-  server.registerTool(
+  const registerTool = server.registerTool.bind(server) as (
+    name: string,
+    config: {
+      description: string;
+      inputSchema: unknown;
+    },
+    cb: (args: unknown) => Promise<unknown>,
+  ) => unknown;
+
+  registerTool(
     "compare_urls",
     {
       description:
@@ -112,27 +159,13 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
         "Takes screenshots, generates diff images, analyzes sections, " +
         "and performs AI-powered visual analysis. Returns analysis " +
         "results with paths to generated images.",
-      inputSchema: {
-        baseUrl: z.string().describe("Base/reference URL to compare against"),
-        previewUrl: z.string().describe("Preview/changed URL to analyze"),
-        page: z
-          .string()
-          .default("/")
-          .describe("Page path to compare (default: '/')")
-          .optional(),
-        sectionExplanationMode: z
-          .enum(["fast", "detailed", "off"])
-          .default("fast")
-          .describe(
-            "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
-          )
-          .optional(),
-      },
+      inputSchema: compareUrlsInputSchema,
     },
-    async (args) => handleCompareUrls(comparisonService, args),
+    async (args) =>
+      handleCompareUrls(comparisonService, args as CompareUrlsRequest),
   );
 
-  server.registerTool(
+  registerTool(
     "compare_image_to_url",
     {
       description:
@@ -140,30 +173,10 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
         "Captures the preview page, normalizes the base image source, generates diff images, " +
         "analyzes sections, and performs AI-powered section explanation where available. " +
         "Returns analysis results with paths to generated images.",
-      inputSchema: {
-        baseImageSource: z
-          .string()
-          .describe(
-            "Base/reference image source as an HTTP(S) image URL or data:image/...",
-          ),
-        previewUrl: z
-          .string()
-          .describe("Preview/changed webpage URL to analyze"),
-        page: z
-          .string()
-          .default("/")
-          .describe("Page path to compare on the preview URL (default: '/')")
-          .optional(),
-        sectionExplanationMode: z
-          .enum(["fast", "detailed", "off"])
-          .default("fast")
-          .describe(
-            "How to generate section explanations: fast explains only problematic matches, detailed explains all matched sections, and off skips LLM explanations.",
-          )
-          .optional(),
-      },
+      inputSchema: compareImageToUrlInputSchema,
     },
-    async (args) => handleCompareImageToUrl(comparisonService, args),
+    async (args) =>
+      handleCompareImageToUrl(comparisonService, args as CompareImageToUrlRequest),
   );
 
   return server;
