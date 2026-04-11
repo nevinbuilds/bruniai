@@ -240,6 +240,36 @@ describe("BruniReporter.sendMultiPageReport", () => {
     );
   });
 
+  it("omits section_results from the API payload", async () => {
+    const reporter = new BruniReporter(
+      "test-token",
+      "https://api.bruni.com/reports"
+    );
+    const reportData = createMultiPageReportData(1);
+    reportData.reports[0].section_results = [];
+
+    const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          status: "success",
+          test: { id: "report-123" },
+        }),
+    });
+
+    const result = await reporter.sendMultiPageReport(reportData);
+
+    expect(result).toEqual([
+      { status: "success", test: { id: "report-123" } },
+    ]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    const payload = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(payload.reports[0]).not.toHaveProperty("section_results");
+  });
+
   it("should handle network errors", async () => {
     const reporter = new BruniReporter(
       "test-token",

@@ -1,5 +1,17 @@
 import type { MultiPageReportData } from "./types.js";
 
+function sanitizeReportForApi(report: unknown) {
+  if (!report || typeof report !== "object") {
+    return report;
+  }
+
+  const { section_results: _sectionResults, ...apiReport } = report as Record<
+    string,
+    unknown
+  >;
+  return apiReport;
+}
+
 /**
  * BruniReporter class for sending multi-page reports to the Bruni API.
  */
@@ -57,7 +69,7 @@ export class BruniReporter {
 
       // Prepare payload
       const payload: Record<string, any> = {
-        reports: chunk,
+        reports: chunk.map(sanitizeReportForApi),
         test_data: multiPageReport.test_data,
         chunk_index: chunkIndex,
         total_chunks: chunks.length,

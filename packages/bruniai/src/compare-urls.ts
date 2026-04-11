@@ -112,6 +112,9 @@ export async function compareUrls(
             : undefined,
       },
     };
+    if (result.section_results) {
+      output.section_results = result.section_results;
+    }
 
     return output;
   } finally {

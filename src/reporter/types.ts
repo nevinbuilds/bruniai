@@ -106,6 +106,7 @@ export interface PageReport {
   recommendation_enum: RecommendationStatus;
   conclusion: Conclusion;
   image_refs?: ImageReferences | null;
+  section_results?: SectionVisualResult[] | null;
 }
 
 export interface MultiPageReportData {
