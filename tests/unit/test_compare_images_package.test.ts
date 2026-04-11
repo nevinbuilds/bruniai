@@ -137,6 +137,7 @@ export async function compareImageToUrl(input) {
           )
         : undefined,
     },
+    section_results: result.section_results,
   };
   } finally {
     await stagehand.close();
@@ -197,7 +198,32 @@ describe("compareImageToUrl package API", () => {
       section_screenshots: {
         hero: { base: "/tmp/hero-base.png", preview: "/tmp/hero-preview.png" },
       },
-      section_results: [],
+      section_results: [
+        {
+          section_id: "hero",
+          name: "Hero",
+          status: "problematic",
+          design_range: { start_y: 0, end_y: 100 },
+          matched_range: { start_y: 10, end_y: 110 },
+          match_score: 0.7,
+          similarity_score: 0.7,
+          signals: {
+            pixel_difference: 0.3,
+            edge_difference: 0.2,
+            structural_similarity: 0.8,
+            final_similarity_score: 0.7,
+          },
+          description: "Hero changed",
+          explanation: "Hero changed",
+          explanation_confidence: null,
+          explanation_source: "deterministic_fallback",
+          image_refs: {
+            base: "/tmp/hero-base.png",
+            preview: "/tmp/hero-preview.png",
+            diff: "/tmp/hero-diff.png",
+          },
+        },
+      ],
       mode: "image-to-url",
     } as any);
 
@@ -215,6 +241,7 @@ describe("compareImageToUrl package API", () => {
       "visual_analysis",
       "sections_analysis",
       "images",
+      "section_results",
     ]);
     expect(result.images).toEqual({
       base_screenshot: "/tmp/base.png",
@@ -224,6 +251,17 @@ describe("compareImageToUrl package API", () => {
         hero: { base: "/tmp/hero-base.png", preview: "/tmp/hero-preview.png" },
       },
     });
+    expect(result.section_results?.[0]).toEqual(
+      expect.objectContaining({
+        section_id: "hero",
+        status: "problematic",
+        image_refs: {
+          base: "/tmp/hero-base.png",
+          preview: "/tmp/hero-preview.png",
+          diff: "/tmp/hero-diff.png",
+        },
+      }),
+    );
   });
 
   it("forwards sectionExplanationMode to the comparison core", async () => {

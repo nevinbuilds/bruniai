@@ -8,6 +8,7 @@ import type {
   RecommendationStatus,
   ImageReferences,
   ComparisonMode,
+  SectionVisualResult,
 } from "./types.js";
 import type { VisualAnalysisResult } from "../vision/types.js";
 
@@ -100,6 +101,7 @@ export function parseMultiPageAnalysisResults(
     visual_analysis: VisualAnalysisResult | Record<string, any>;
     sections_analysis: string;
     image_refs?: ImageReferences | null;
+    section_results?: SectionVisualResult[] | null;
   }>,
   comparisonMode?: ComparisonMode
 ): MultiPageReportData {
@@ -121,6 +123,7 @@ export function parseMultiPageAnalysisResults(
       pr_url,
       visual_analysis,
       image_refs,
+      section_results,
     } =
       pageResult;
 
@@ -234,6 +237,7 @@ export function parseMultiPageAnalysisResults(
         summary: "",
       },
       image_refs: image_refs || null,
+      section_results: section_results || null,
     };
 
     reports.push(pageReport);

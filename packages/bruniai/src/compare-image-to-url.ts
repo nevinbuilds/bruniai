@@ -139,6 +139,7 @@ export async function compareImageToUrl(
               )
             : undefined,
       },
+      section_results: result.section_results,
     };
   } finally {
     await stagehand.close();

@@ -1,5 +1,8 @@
 import type { VisualAnalysisResult } from "../../../dist/vision/types.js";
-import type { ReportStatus } from "../../../dist/reporter/types.js";
+import type {
+  ReportStatus,
+  SectionVisualResult,
+} from "../../../dist/reporter/types.js";
 
 /**
  * Input parameters for compareUrls function.
@@ -74,6 +77,8 @@ export interface CompareUrlsOutput {
   sections_analysis: string;
   /** Generated images from comparison. */
   images: ComparisonImages;
+  /** Optional deterministic section-level diff results. */
+  section_results?: SectionVisualResult[];
 }
 
 /**
