@@ -4,6 +4,10 @@ import { fileURLToPath } from "url";
 const reporterDistModulePath = fileURLToPath(
   new URL("../../dist/reporter/index.js", import.meta.url),
 );
+const reporterSourceModuleUrl = new URL(
+  "../../src/reporter/index.ts",
+  import.meta.url,
+).href;
 
 describe("bruniai package report API", () => {
   beforeEach(() => {
@@ -41,6 +45,13 @@ describe("bruniai package report API", () => {
     );
 
     vi.doMock(reporterDistModulePath, () => ({
+      BruniReporter: class MockBruniReporter {
+        sendMultiPageReport = sendMultiPageReport;
+      },
+      parseMultiPageAnalysisResults,
+      encodeImageCompressed,
+    }));
+    vi.doMock(reporterSourceModuleUrl, () => ({
       BruniReporter: class MockBruniReporter {
         sendMultiPageReport = sendMultiPageReport;
       },
