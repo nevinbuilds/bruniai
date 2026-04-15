@@ -113,7 +113,7 @@ describe("bruniai package report API", () => {
       repository: "owner/repo",
     });
 
-    expect(reportUrl).toBe("https://bruniai-app.vercel.app/test/report-123");
+    expect(reportUrl).toBe("https://app.brunivisual.com/test/report-123");
     expect(parseMultiPageAnalysisResults).toHaveBeenCalledWith(
       "42",
       "owner/repo",

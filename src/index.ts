@@ -84,7 +84,7 @@ async function main() {
   const bruniApiUrl =
     process.env.BRUNI_API_URL ||
     args.bruniApiUrl ||
-    "https://bruniai-app.vercel.app/api/tests";
+    "https://app.brunivisual.com/api/tests";
 
   let bruniReporter: BruniReporter | null = null;
   if (bruniToken) {
