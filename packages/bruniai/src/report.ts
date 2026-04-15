@@ -45,7 +45,7 @@ export interface SendReportInput {
   repository?: string;
 }
 
-const DEFAULT_BRUNI_API_URL = "https://bruniai-app.vercel.app/api/tests";
+const DEFAULT_BRUNI_API_URL = "https://app.brunivisual.com/api/tests";
 
 async function encodeSectionScreenshots(
   sectionScreenshots: SectionScreenshots | undefined,

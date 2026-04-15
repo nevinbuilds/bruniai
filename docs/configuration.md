@@ -33,7 +33,7 @@ npm run dev -- --base-url <production-url> --pr-url <pull-request-url>
 
 - `--pages`: Comma-separated list of page paths to test (e.g., `"/,/about,/contact"`). If not provided, only the homepage (`/`) is tested.
 - `--bruni-token`: Token for sending reports to Bruni API (optional)
-- `--bruni-api-url`: URL for the Bruni API endpoint (optional, defaults to `https://bruniai-app.vercel.app/api/tests`)
+- `--bruni-api-url`: URL for the Bruni API endpoint (optional, defaults to `https://app.brunivisual.com/api/tests`)
 
 ## GitHub Action Configuration
 

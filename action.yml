@@ -24,7 +24,7 @@ inputs:
   bruni-api-url:
     description: "URL for the Bruni API endpoint"
     required: false
-    default: "https://bruniai-app.vercel.app/api/tests"
+    default: "https://app.brunivisual.com/api/tests"
 
 secrets:
   OPENAI_API_KEY:

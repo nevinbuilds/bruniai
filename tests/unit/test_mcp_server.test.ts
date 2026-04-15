@@ -313,7 +313,7 @@ describe("MCP server", () => {
     };
     vi.mocked(bruniai.compareUrls).mockResolvedValue(mockResult as any);
     vi.mocked(bruniai.sendReport).mockResolvedValue(
-      "https://bruniai-app.vercel.app/test/abc123",
+      "https://app.brunivisual.com/test/abc123",
     );
 
     const { setBruniaiModuleLoaderForTests } = await import(
@@ -339,7 +339,7 @@ describe("MCP server", () => {
 
     expect(response.isError).toBeUndefined();
     expect(response.content[0].text).toContain(
-      "→ Open visual report: https://bruniai-app.vercel.app/test/abc123",
+      "→ Open visual report: https://app.brunivisual.com/test/abc123",
     );
     expect(bruniai.sendReport).toHaveBeenCalledWith(
       expect.objectContaining({
