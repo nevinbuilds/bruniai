@@ -22,8 +22,12 @@ That app exposes:
 Required environment variables:
 
 - `OPENAI_API_KEY`
-- `MCP_BEARER_TOKEN`
-- `MCP_ALLOWED_ORIGINS`
+- `BRUNI_APP_URL` and `BRUNI_MCP_INTERNAL_SECRET` for remote per-user MCP auth
+- `MCP_ALLOWED_ORIGINS` (optional)
+
+`MCP_BEARER_TOKEN` remains available for legacy/private development deployments.
+For production remote MCP, clients should send a per-user `bruni_mcp_...` token
+in the `Authorization` header.
 
 ## Installation
 

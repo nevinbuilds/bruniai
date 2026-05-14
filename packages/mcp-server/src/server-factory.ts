@@ -4,6 +4,7 @@ import type {
   CompareImageToUrlRequest,
   CompareUrlsRequest,
   ComparisonService,
+  McpAuthContext,
 } from "./types.js";
 
 const compareUrlsInputSchema = {
@@ -168,11 +169,16 @@ async function tryGetReportUrl(
   baseUrl: string,
   previewUrl: string,
   comparisonMode: "url-to-url" | "image-to-url" | "image-to-image",
+  authContext?: McpAuthContext,
   prNumber?: string,
   repository?: string,
 ): Promise<string | null> {
+  const bruniAppUrl = process.env.BRUNI_APP_URL?.replace(/\/$/, "");
+  const mcpInternalSecret = process.env.BRUNI_MCP_INTERNAL_SECRET;
   const bruniToken = process.env.BRUNI_TOKEN;
-  if (!bruniToken) {
+  const hasMcpReportAuth = Boolean(authContext && bruniAppUrl && mcpInternalSecret);
+
+  if (!hasMcpReportAuth && !bruniToken) {
     return null;
   }
 
@@ -183,7 +189,11 @@ async function tryGetReportUrl(
       baseUrl,
       previewUrl,
       bruniToken,
-      bruniApiUrl: process.env.BRUNI_API_URL,
+      mcpAuthContext: hasMcpReportAuth ? authContext : undefined,
+      mcpInternalSecret: hasMcpReportAuth ? mcpInternalSecret : undefined,
+      bruniApiUrl: hasMcpReportAuth
+        ? `${bruniAppUrl}/api/internal/mcp/tests`
+        : process.env.BRUNI_API_URL,
       comparisonMode,
       prNumber,
       repository,
@@ -197,6 +207,7 @@ async function tryGetReportUrl(
 async function handleCompareUrls(
   comparisonService: ComparisonService,
   args: CompareUrlsRequest,
+  authContext?: McpAuthContext,
 ) {
   try {
     if (!args.baseUrl || !args.previewUrl) {
@@ -225,6 +236,7 @@ async function handleCompareUrls(
       args.baseUrl,
       args.previewUrl,
       "url-to-url",
+      authContext,
       args.prNumber,
       args.repository,
     );
@@ -238,6 +250,7 @@ async function handleCompareUrls(
 async function handleCompareImageToUrl(
   comparisonService: ComparisonService,
   args: CompareImageToUrlRequest,
+  authContext?: McpAuthContext,
 ) {
   try {
     if (!args.baseImageSource || !args.previewUrl) {
@@ -266,6 +279,7 @@ async function handleCompareImageToUrl(
       args.baseImageSource,
       args.previewUrl,
       "image-to-url",
+      authContext,
       args.prNumber,
       args.repository,
     );
@@ -276,7 +290,10 @@ async function handleCompareImageToUrl(
   }
 }
 
-export function createBruniMcpServer(comparisonService: ComparisonService) {
+export function createBruniMcpServer(
+  comparisonService: ComparisonService,
+  authContext?: McpAuthContext,
+) {
   const server = new McpServer(
     {
       name: "bruniai",
@@ -309,12 +326,16 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
         "Compare two URLs visually and analyze differences. " +
         "Takes screenshots, generates diff images, analyzes sections, " +
         "and performs AI-powered visual analysis. Returns a condensed summary " +
-        "of issues found. When BRUNI_TOKEN is set the full report is uploaded " +
+        "of issues found. When report authentication is configured the full report is uploaded " +
         "and a link is included in the response.",
       inputSchema: compareUrlsInputSchema,
     },
     async (args) =>
-      handleCompareUrls(comparisonService, args as CompareUrlsRequest),
+      handleCompareUrls(
+        comparisonService,
+        args as CompareUrlsRequest,
+        authContext,
+      ),
   );
 
   registerTool(
@@ -324,12 +345,16 @@ export function createBruniMcpServer(comparisonService: ComparisonService) {
         "Compare a base image source against a preview URL visually and analyze differences. " +
         "Captures the preview page, normalizes the base image source, generates diff images, " +
         "analyzes sections, and performs AI-powered section explanation where available. " +
-        "Returns a condensed summary of issues found. When BRUNI_TOKEN is set the full report " +
+        "Returns a condensed summary of issues found. When report authentication is configured the full report " +
         "is uploaded and a link is included in the response.",
       inputSchema: compareImageToUrlInputSchema,
     },
     async (args) =>
-      handleCompareImageToUrl(comparisonService, args as CompareImageToUrlRequest),
+      handleCompareImageToUrl(
+        comparisonService,
+        args as CompareImageToUrlRequest,
+        authContext,
+      ),
   );
 
   return server;

@@ -1,6 +1,7 @@
 export { bruniaiComparisonService } from "./bruniai-service.js";
 export {
   clearHttpRateLimitBuckets,
+  createBruniAppMcpAuthVerifier,
   createHttpMcpHandler,
   getHttpMcpConfigFromEnv,
 } from "./http-handler.js";
@@ -10,4 +11,6 @@ export type {
   ComparisonService,
   CompareImageToUrlRequest,
   CompareUrlsRequest,
+  McpAuthContext,
+  McpAuthVerifier,
 } from "./types.js";

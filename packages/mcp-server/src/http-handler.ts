@@ -1,7 +1,11 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createBruniMcpServer } from "./server-factory.js";
-import type { ComparisonService } from "./types.js";
+import type {
+  ComparisonService,
+  McpAuthContext,
+  McpAuthVerifier,
+} from "./types.js";
 
 interface LoggerLike {
   info: (message: string) => void;
@@ -12,17 +16,23 @@ interface LoggerLike {
 export interface HttpMcpHandlerConfig {
   comparisonService: ComparisonService;
   bearerToken?: string;
+  authVerifier?: McpAuthVerifier;
   allowedOrigins?: string[];
   rateLimitWindowMs?: number;
   rateLimitMaxRequests?: number;
   logger?: LoggerLike;
   transportFactory?: () => HttpTransportLike;
-  serverFactory?: (comparisonService: ComparisonService) => HttpServerLike;
+  serverFactory?: (
+    comparisonService: ComparisonService,
+    authContext?: McpAuthContext,
+  ) => HttpServerLike;
 }
 
 export interface EnvConfigSource extends Record<string, string | undefined> {
   MCP_BEARER_TOKEN?: string;
   MCP_ALLOWED_ORIGINS?: string;
+  BRUNI_APP_URL?: string;
+  BRUNI_MCP_INTERNAL_SECRET?: string;
 }
 
 type RequestWithOptionalBody = IncomingMessage & {
@@ -106,11 +116,12 @@ function getClientIdentifier(req: IncomingMessage): string {
 function checkRateLimit(
   req: IncomingMessage,
   config: HttpMcpHandlerConfig,
+  authContext?: McpAuthContext,
 ): { allowed: true } | { allowed: false; retryAfterSeconds: number } {
   const windowMs = config.rateLimitWindowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS;
   const maxRequests =
     config.rateLimitMaxRequests ?? DEFAULT_RATE_LIMIT_MAX_REQUESTS;
-  const key = getClientIdentifier(req);
+  const key = authContext?.userId || getClientIdentifier(req);
   const now = Date.now();
   const existing = rateLimitBuckets.get(key);
 
@@ -149,16 +160,38 @@ function respondJson(
   res.end(JSON.stringify(payload));
 }
 
-function validateAuthorization(
+function extractBearerToken(req: IncomingMessage): string | null {
+  const authorization = req.headers.authorization;
+  if (!authorization || !authorization.startsWith("Bearer ")) {
+    return null;
+  }
+
+  return authorization.slice("Bearer ".length).trim() || null;
+}
+
+async function validateAuthorization(
   req: IncomingMessage,
   config: HttpMcpHandlerConfig,
-): boolean {
+): Promise<{ valid: true; authContext?: McpAuthContext } | { valid: false }> {
+  const bearerToken = extractBearerToken(req);
+
+  if (config.authVerifier) {
+    if (!bearerToken) {
+      return { valid: false };
+    }
+
+    const authContext = await config.authVerifier(bearerToken);
+    return authContext ? { valid: true, authContext } : { valid: false };
+  }
+
   if (!config.bearerToken) {
-    return true;
+    return { valid: true };
   }
 
   const expected = `Bearer ${config.bearerToken}`;
-  return req.headers.authorization === expected;
+  return req.headers.authorization === expected
+    ? { valid: true }
+    : { valid: false };
 }
 
 function validateOrigin(
@@ -237,10 +270,60 @@ export function getHttpMcpConfigFromEnv(
   comparisonService: ComparisonService,
   env: EnvConfigSource = process.env,
 ): HttpMcpHandlerConfig {
+  const appUrl = env.BRUNI_APP_URL?.replace(/\/$/, "");
+  const internalSecret = env.BRUNI_MCP_INTERNAL_SECRET;
+
   return {
     comparisonService,
     bearerToken: env.MCP_BEARER_TOKEN,
+    authVerifier:
+      appUrl && internalSecret
+        ? createBruniAppMcpAuthVerifier(appUrl, internalSecret)
+        : undefined,
     allowedOrigins: parseAllowedOrigins(env.MCP_ALLOWED_ORIGINS),
+  };
+}
+
+export function createBruniAppMcpAuthVerifier(
+  appUrl: string,
+  internalSecret: string,
+): McpAuthVerifier {
+  return async (token: string) => {
+    const response = await fetch(`${appUrl}/api/internal/mcp/introspect`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${internalSecret}`,
+      },
+      body: JSON.stringify({
+        token,
+        requiredScopes: ["reports:create"],
+      }),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const body = (await response.json()) as {
+      active?: boolean;
+      userId?: string;
+      tokenId?: string;
+      scopes?: unknown;
+      teamId?: string;
+      projectId?: string;
+    };
+    if (!body?.active || !body.userId || !body.tokenId) {
+      return null;
+    }
+
+    return {
+      userId: body.userId,
+      tokenId: body.tokenId,
+      scopes: Array.isArray(body.scopes) ? body.scopes : [],
+      ...(body.teamId ? { teamId: body.teamId } : {}),
+      ...(body.projectId ? { projectId: body.projectId } : {}),
+    };
   };
 }
 
@@ -252,7 +335,23 @@ export function createHttpMcpHandler(config: HttpMcpHandlerConfig) {
     res: ServerResponse,
     parsedBody?: unknown,
   ): Promise<void> {
-    if (!validateAuthorization(req, config)) {
+    let authResult:
+      | { valid: true; authContext?: McpAuthContext }
+      | { valid: false };
+    try {
+      authResult = await validateAuthorization(req, config);
+    } catch (error) {
+      logEvent(logger, "error", "mcp.auth.error", {
+        path: req.url || "",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      respondJson(res, 503, {
+        error: "Service Unavailable",
+        message: "Failed to verify MCP authorization.",
+      });
+      return;
+    }
+    if (!authResult.valid) {
       logEvent(logger, "warn", "mcp.auth.failed", {
         path: req.url || "",
         reason: "invalid_authorization",
@@ -281,7 +380,7 @@ export function createHttpMcpHandler(config: HttpMcpHandlerConfig) {
       return;
     }
 
-    const rateLimitResult = checkRateLimit(req, config);
+    const rateLimitResult = checkRateLimit(req, config, authResult.authContext);
     if (!rateLimitResult.allowed) {
       logEvent(logger, "warn", "mcp.rate_limited", {
         path: req.url || "",
@@ -324,8 +423,8 @@ export function createHttpMcpHandler(config: HttpMcpHandlerConfig) {
           enableJsonResponse: true,
         });
     const server = config.serverFactory
-      ? config.serverFactory(config.comparisonService)
-      : createBruniMcpServer(config.comparisonService);
+      ? config.serverFactory(config.comparisonService, authResult.authContext)
+      : createBruniMcpServer(config.comparisonService, authResult.authContext);
 
     transport.onerror = (error) => {
       logEvent(logger, "error", "mcp.transport.error", {

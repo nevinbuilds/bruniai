@@ -96,8 +96,15 @@ The MCP server requires the following environment variable:
 
 For remote HTTP deployment, also configure:
 
-- `MCP_BEARER_TOKEN` (required): bearer token for private MCP access
+- `BRUNI_APP_URL` (required): base URL for `bruniai-app`, used for MCP token
+  introspection and report creation
+- `BRUNI_MCP_INTERNAL_SECRET` (required): shared internal secret between the MCP
+  deployment and `bruniai-app`
 - `MCP_ALLOWED_ORIGINS` (optional): comma-separated list of allowed `Origin` values
+
+`MCP_BEARER_TOKEN` is still supported as a legacy private-development fallback.
+Production remote MCP clients should send per-user `bruni_mcp_...` tokens issued
+by `bruniai-app` as `Authorization: Bearer <token>`.
 
 Set it before running the server:
 
@@ -151,9 +158,11 @@ Recommended Vercel setup:
 4. The app's `prebuild` step runs `npm --prefix ../.. run build:mcp` so Vercel
    generates the workspace package `dist` output before `next build` type-checks
    imports from `bruniai` and `bruniai-mcp-server`.
-5. Configure `OPENAI_API_KEY`, `MCP_BEARER_TOKEN`, and `MCP_ALLOWED_ORIGINS`.
+5. Configure `OPENAI_API_KEY`, `BRUNI_APP_URL`, `BRUNI_MCP_INTERNAL_SECRET`,
+   and optionally `MCP_ALLOWED_ORIGINS`.
 6. Add the custom domain `mcp.brunivisual.com`.
-7. Point MCP clients at `https://mcp.brunivisual.com/mcp`.
+7. Point MCP clients at `https://mcp.brunivisual.com/mcp` and send a per-user
+   MCP token as `Authorization: Bearer bruni_mcp_...`.
 
 ### Tool Schema
 

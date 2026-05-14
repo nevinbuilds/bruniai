@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fileURLToPath } from "url";
 
 const reporterDistModulePath = fileURLToPath(
@@ -13,6 +13,10 @@ describe("bruniai package report API", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("includes encoded section screenshots and section results in the report payload", async () => {
@@ -144,6 +148,99 @@ describe("bruniai package report API", () => {
     expect(sendMultiPageReport).toHaveBeenCalledWith(
       expect.objectContaining({
         reports: expect.any(Array),
+      }),
+    );
+  });
+
+  it("can send reports through the internal MCP report endpoint", async () => {
+    const sendMultiPageReport = vi.fn();
+    const parseMultiPageAnalysisResults = vi.fn(
+      (
+        prNumber: string,
+        repository: string,
+        pageResults: unknown[],
+        comparisonMode: string,
+      ) => ({
+        test_data: {
+          pr_number: prNumber,
+          repository,
+          timestamp: "2026-04-11T00:00:00.000Z",
+          comparison_mode: comparisonMode,
+        },
+        reports: pageResults,
+      }),
+    );
+    const encodeImageCompressed = vi.fn(
+      async (imagePath: string) => `encoded:${imagePath}`,
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ test: { id: "mcp-report-123" } }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.doMock(reporterDistModulePath, () => ({
+      BruniReporter: class MockBruniReporter {
+        sendMultiPageReport = sendMultiPageReport;
+      },
+      parseMultiPageAnalysisResults,
+      encodeImageCompressed,
+    }));
+    vi.doMock(reporterSourceModuleUrl, () => ({
+      BruniReporter: class MockBruniReporter {
+        sendMultiPageReport = sendMultiPageReport;
+      },
+      parseMultiPageAnalysisResults,
+      encodeImageCompressed,
+    }));
+
+    const { sendReport } = await import("../../packages/bruniai/src/report.ts");
+
+    const reportUrl = await sendReport({
+      result: {
+        status: "pass",
+        visual_analysis: { status: "pass" },
+        sections_analysis: "sections",
+        images: {
+          base_screenshot: "/tmp/base.png",
+          preview_screenshot: "/tmp/preview.png",
+          diff_image: "/tmp/diff.png",
+        },
+      } as any,
+      page: "/",
+      baseUrl: "https://example.com",
+      previewUrl: "https://preview.example.com",
+      bruniApiUrl: "https://app.brunivisual.com/api/internal/mcp/tests",
+      mcpInternalSecret: "internal-secret",
+      mcpAuthContext: {
+        userId: "user-123",
+        tokenId: "token-123",
+        scopes: ["reports:create"],
+      },
+      comparisonMode: "url-to-url",
+      prNumber: "42",
+      repository: "owner/repo",
+    });
+
+    expect(reportUrl).toBe("https://app.brunivisual.com/test/mcp-report-123");
+    expect(sendMultiPageReport).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://app.brunivisual.com/api/internal/mcp/tests",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer internal-secret",
+        }),
+      }),
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(
+      expect.objectContaining({
+        identity: {
+          userId: "user-123",
+          tokenId: "token-123",
+          scopes: ["reports:create"],
+        },
       }),
     );
   });
