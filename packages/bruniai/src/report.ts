@@ -38,7 +38,15 @@ export interface SendReportInput {
   page: string;
   baseUrl: string;
   previewUrl: string;
-  bruniToken: string;
+  bruniToken?: string;
+  mcpAuthContext?: {
+    userId: string;
+    tokenId: string;
+    scopes: string[];
+    teamId?: string;
+    projectId?: string;
+  };
+  mcpInternalSecret?: string;
   bruniApiUrl?: string;
   comparisonMode?: ComparisonMode;
   prNumber?: string;
@@ -46,6 +54,73 @@ export interface SendReportInput {
 }
 
 const DEFAULT_BRUNI_API_URL = "https://app.brunivisual.com/api/tests";
+
+function getReportBaseUrl(bruniApiUrl: string): string {
+  return bruniApiUrl
+    .replace("/api/internal/mcp/tests", "")
+    .replace("/api/tests", "")
+    .replace(/\/$/, "");
+}
+
+async function sendInternalMcpReport(
+  multiPageReport: unknown,
+  bruniApiUrl: string,
+  mcpInternalSecret: string,
+  mcpAuthContext: NonNullable<SendReportInput["mcpAuthContext"]>,
+): Promise<Array<Record<string, any>> | null> {
+  const reportData = multiPageReport as {
+    test_data: unknown;
+    reports: unknown[];
+  };
+  const chunks: unknown[][] = [];
+  const maxChunkSize = 1;
+
+  for (let i = 0; i < reportData.reports.length; i += maxChunkSize) {
+    chunks.push(reportData.reports.slice(i, i + maxChunkSize));
+  }
+
+  const responses: Array<Record<string, any>> = [];
+  let testId: string | null = null;
+
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    const payload: Record<string, unknown> = {
+      identity: mcpAuthContext,
+      test_data: reportData.test_data,
+      reports: chunks[chunkIndex],
+      chunk_index: chunkIndex,
+      total_chunks: chunks.length,
+    };
+
+    if (testId) {
+      payload.test_id = testId;
+    }
+
+    const response = await fetch(bruniApiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${mcpInternalSecret}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to send MCP report: ${response.status} - ${responseText}`,
+      );
+    }
+
+    const parsed = JSON.parse(responseText);
+    responses.push(parsed);
+
+    if (!testId && parsed?.test?.id) {
+      testId = String(parsed.test.id);
+    }
+  }
+
+  return responses;
+}
 
 async function encodeSectionScreenshots(
   sectionScreenshots: SectionScreenshots | undefined,
@@ -120,6 +195,8 @@ export async function sendReport(
     baseUrl,
     previewUrl,
     bruniToken,
+    mcpAuthContext,
+    mcpInternalSecret,
     bruniApiUrl = DEFAULT_BRUNI_API_URL,
     comparisonMode = "url-to-url",
     prNumber = "",
@@ -129,7 +206,7 @@ export async function sendReport(
   const { BruniReporter, parseMultiPageAnalysisResults, encodeImageCompressed } =
     await loadReporterModule();
 
-  const reporter = new BruniReporter(bruniToken, bruniApiUrl);
+  const reporter = new BruniReporter(bruniToken || "", bruniApiUrl);
 
   const imageRefs: EncodedImageRefs = {
     base_screenshot: await encodeImageCompressed(
@@ -185,7 +262,15 @@ export async function sendReport(
     comparisonMode,
   );
 
-  const apiResponse = await reporter.sendMultiPageReport(multiPageReport);
+  const apiResponse =
+    mcpAuthContext && mcpInternalSecret
+      ? await sendInternalMcpReport(
+          multiPageReport,
+          bruniApiUrl,
+          mcpInternalSecret,
+          mcpAuthContext,
+        )
+      : await reporter.sendMultiPageReport(multiPageReport);
 
   if (apiResponse && apiResponse.length > 0) {
     const firstResponse = apiResponse[0];
@@ -193,9 +278,7 @@ export async function sendReport(
       const testObj = firstResponse.test as Record<string, unknown>;
       const reportId = testObj.id;
       if (reportId) {
-        const baseApiUrl = bruniApiUrl
-          .replace("/api/tests", "")
-          .replace(/\/$/, "");
+        const baseApiUrl = getReportBaseUrl(bruniApiUrl);
         return `${baseApiUrl}/test/${reportId}`;
       }
     }

@@ -21,12 +21,24 @@ export interface SendReportRequest {
   page: string;
   baseUrl: string;
   previewUrl: string;
-  bruniToken: string;
+  bruniToken?: string;
+  mcpAuthContext?: McpAuthContext;
+  mcpInternalSecret?: string;
   bruniApiUrl?: string;
   comparisonMode?: "url-to-url" | "image-to-url" | "image-to-image";
   prNumber?: string;
   repository?: string;
 }
+
+export interface McpAuthContext {
+  userId: string;
+  tokenId: string;
+  scopes: string[];
+  teamId?: string;
+  projectId?: string;
+}
+
+export type McpAuthVerifier = (token: string) => Promise<McpAuthContext | null>;
 
 export interface ComparisonService {
   compareUrls(input: CompareUrlsRequest): Promise<unknown>;

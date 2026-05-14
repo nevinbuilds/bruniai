@@ -70,8 +70,86 @@ describe("HTTP MCP handler", () => {
       compareImageToUrl: vi
         .fn<(input: CompareImageToUrlRequest) => Promise<unknown>>()
         .mockResolvedValue({ ok: true }),
+      sendReport: vi.fn().mockResolvedValue(null),
     };
     process.env.OPENAI_API_KEY = "test-key";
+  });
+
+  it("passes verified MCP auth context to the server factory", async () => {
+    const handleRequest = vi.fn().mockResolvedValue(undefined);
+    const transport = {
+      handleRequest,
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const connect = vi.fn().mockResolvedValue(undefined);
+    const authContext = {
+      userId: "user-123",
+      tokenId: "token-123",
+      scopes: ["reports:create"],
+    };
+    const serverFactory = vi.fn(() => ({ connect }));
+
+    const handler = createHttpMcpHandler({
+      comparisonService,
+      authVerifier: vi.fn().mockResolvedValue(authContext),
+      transportFactory: () => transport,
+      serverFactory,
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+    });
+
+    const req = createRequest({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: "Bearer bruni_mcp_test",
+      },
+      body: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {},
+      },
+    });
+    const res = new MockResponse();
+
+    await handler(req as never, res as never);
+
+    expect(serverFactory).toHaveBeenCalledWith(comparisonService, authContext);
+    expect(handleRequest).toHaveBeenCalledWith(req, res, req.body);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("rejects requests when MCP auth verification fails", async () => {
+    const handler = createHttpMcpHandler({
+      comparisonService,
+      authVerifier: vi.fn().mockResolvedValue(null),
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+    });
+
+    const req = createRequest({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: "Bearer invalid",
+      },
+      body: {
+        method: "initialize",
+      },
+    });
+    const res = new MockResponse();
+
+    await handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toContain("Unauthorized");
   });
 
   afterEach(() => {

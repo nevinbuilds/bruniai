@@ -40,12 +40,16 @@ vi.mock("bruniai", () => ({
 describe("MCP server", () => {
   const originalOpenAiKey = process.env.OPENAI_API_KEY;
   const originalBruniToken = process.env.BRUNI_TOKEN;
+  const originalBruniAppUrl = process.env.BRUNI_APP_URL;
+  const originalMcpInternalSecret = process.env.BRUNI_MCP_INTERNAL_SECRET;
 
   beforeEach(() => {
     registeredTools.length = 0;
     vi.resetModules();
     process.env.OPENAI_API_KEY = "test-key";
     delete process.env.BRUNI_TOKEN;
+    delete process.env.BRUNI_APP_URL;
+    delete process.env.BRUNI_MCP_INTERNAL_SECRET;
   });
 
   afterEach(() => {
@@ -58,6 +62,16 @@ describe("MCP server", () => {
       process.env.BRUNI_TOKEN = originalBruniToken;
     } else {
       delete process.env.BRUNI_TOKEN;
+    }
+    if (originalBruniAppUrl) {
+      process.env.BRUNI_APP_URL = originalBruniAppUrl;
+    } else {
+      delete process.env.BRUNI_APP_URL;
+    }
+    if (originalMcpInternalSecret) {
+      process.env.BRUNI_MCP_INTERNAL_SECRET = originalMcpInternalSecret;
+    } else {
+      delete process.env.BRUNI_MCP_INTERNAL_SECRET;
     }
     vi.clearAllMocks();
   });
@@ -395,5 +409,70 @@ describe("MCP server", () => {
     expect(response.content[0].text).not.toContain("Open visual report");
     expect(bruniai.sendReport).not.toHaveBeenCalled();
     setBruniaiModuleLoaderForTests(null);
+  });
+
+  it("sends reports with MCP auth context when configured", async () => {
+    process.env.BRUNI_APP_URL = "https://app.brunivisual.com";
+    process.env.BRUNI_MCP_INTERNAL_SECRET = "internal-secret";
+
+    const bruniai = await import("bruniai");
+    const mockResult = {
+      status: "pass",
+      visual_analysis: {
+        status: "pass",
+        critical_issues: { sections: [], summary: "" },
+        visual_changes: { diff_highlights: [], conclusion: "" },
+        conclusion: { summary: "All good.", recommendation: "pass" },
+      },
+      sections_analysis: "sections",
+      images: {
+        base_screenshot: "/tmp/base.png",
+        preview_screenshot: "/tmp/preview.png",
+        diff_image: "/tmp/diff.png",
+      },
+    };
+    const authContext = {
+      userId: "user-123",
+      tokenId: "token-123",
+      scopes: ["reports:create"],
+    };
+
+    vi.mocked(bruniai.compareUrls).mockResolvedValue(mockResult as any);
+    vi.mocked(bruniai.sendReport).mockResolvedValue(
+      "https://app.brunivisual.com/test/mcp123",
+    );
+
+    const { createBruniMcpServer } = await import(
+      "../../packages/mcp-server/src/server-factory.ts"
+    );
+    createBruniMcpServer(
+      {
+        compareUrls: bruniai.compareUrls as any,
+        compareImageToUrl: bruniai.compareImageToUrl as any,
+        sendReport: bruniai.sendReport as any,
+      },
+      authContext,
+    );
+
+    const compareUrlsTool = registeredTools.find(
+      (tool) => tool.name === "compare_urls",
+    );
+
+    const response = await compareUrlsTool!.handler({
+      baseUrl: "https://example.com",
+      previewUrl: "https://preview.example.com",
+    });
+
+    expect(response.isError).toBeUndefined();
+    expect(response.content[0].text).toContain(
+      "→ Open visual report: https://app.brunivisual.com/test/mcp123",
+    );
+    expect(bruniai.sendReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mcpAuthContext: authContext,
+        mcpInternalSecret: "internal-secret",
+        bruniApiUrl: "https://app.brunivisual.com/api/internal/mcp/tests",
+      }),
+    );
   });
 });

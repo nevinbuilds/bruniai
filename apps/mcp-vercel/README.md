@@ -16,8 +16,14 @@ Implementation note:
 ## Required Environment Variables
 
 - `OPENAI_API_KEY`
-- `MCP_BEARER_TOKEN`
-- `MCP_ALLOWED_ORIGINS`
+- `BRUNI_APP_URL` (for example, `https://app.brunivisual.com`)
+- `BRUNI_MCP_INTERNAL_SECRET` (shared only between this MCP deployment and
+  `bruniai-app`)
+- `MCP_ALLOWED_ORIGINS` (optional)
+
+`MCP_BEARER_TOKEN` is still supported as a legacy development fallback, but
+production remote MCP deployments should use per-user `bruni_mcp_...` bearer
+tokens issued by `bruniai-app`.
 
 ## Vercel Setup
 
@@ -33,4 +39,5 @@ Implementation note:
    payload.
 6. Configure the required environment variables.
 7. Add the custom domain `mcp.brunivisual.com`.
-8. Point your MCP client at `https://mcp.brunivisual.com/mcp`.
+8. Point your MCP client at `https://mcp.brunivisual.com/mcp` and send the
+   user's MCP token as `Authorization: Bearer bruni_mcp_...`.
