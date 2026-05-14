@@ -435,6 +435,7 @@ describe("MCP server", () => {
       userId: "user-123",
       tokenId: "token-123",
       scopes: ["reports:create"],
+      mcpToken: "bruni_mcp_test",
     };
 
     vi.mocked(bruniai.compareUrls).mockResolvedValue(mockResult as any);
@@ -470,6 +471,7 @@ describe("MCP server", () => {
     expect(bruniai.sendReport).toHaveBeenCalledWith(
       expect.objectContaining({
         mcpAuthContext: authContext,
+        mcpToken: "bruni_mcp_test",
         mcpInternalSecret: "internal-secret",
         bruniApiUrl: "https://app.brunivisual.com/api/internal/mcp/tests",
       }),

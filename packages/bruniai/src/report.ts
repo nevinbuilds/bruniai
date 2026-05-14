@@ -39,10 +39,12 @@ export interface SendReportInput {
   baseUrl: string;
   previewUrl: string;
   bruniToken?: string;
+  mcpToken?: string;
   mcpAuthContext?: {
     userId: string;
     tokenId: string;
     scopes: string[];
+    mcpToken?: string;
     teamId?: string;
     projectId?: string;
   };
@@ -65,8 +67,7 @@ function getReportBaseUrl(bruniApiUrl: string): string {
 async function sendInternalMcpReport(
   multiPageReport: unknown,
   bruniApiUrl: string,
-  mcpInternalSecret: string,
-  mcpAuthContext: NonNullable<SendReportInput["mcpAuthContext"]>,
+  mcpToken: string,
 ): Promise<Array<Record<string, any>> | null> {
   const reportData = multiPageReport as {
     test_data: unknown;
@@ -84,7 +85,6 @@ async function sendInternalMcpReport(
 
   for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
     const payload: Record<string, unknown> = {
-      identity: mcpAuthContext,
       test_data: reportData.test_data,
       reports: chunks[chunkIndex],
       chunk_index: chunkIndex,
@@ -99,7 +99,7 @@ async function sendInternalMcpReport(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${mcpInternalSecret}`,
+        Authorization: `Bearer ${mcpToken}`,
       },
       body: JSON.stringify(payload),
     });
@@ -195,8 +195,8 @@ export async function sendReport(
     baseUrl,
     previewUrl,
     bruniToken,
+    mcpToken,
     mcpAuthContext,
-    mcpInternalSecret,
     bruniApiUrl = DEFAULT_BRUNI_API_URL,
     comparisonMode = "url-to-url",
     prNumber = "",
@@ -263,12 +263,11 @@ export async function sendReport(
   );
 
   const apiResponse =
-    mcpAuthContext && mcpInternalSecret
+    mcpAuthContext && (mcpToken || mcpAuthContext.mcpToken)
       ? await sendInternalMcpReport(
           multiPageReport,
           bruniApiUrl,
-          mcpInternalSecret,
-          mcpAuthContext,
+          mcpToken || mcpAuthContext.mcpToken!,
         )
       : await reporter.sendMultiPageReport(multiPageReport);
 

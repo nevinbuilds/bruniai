@@ -181,7 +181,9 @@ async function validateAuthorization(
     }
 
     const authContext = await config.authVerifier(bearerToken);
-    return authContext ? { valid: true, authContext } : { valid: false };
+    return authContext
+      ? { valid: true, authContext: { ...authContext, mcpToken: bearerToken } }
+      : { valid: false };
   }
 
   if (!config.bearerToken) {
