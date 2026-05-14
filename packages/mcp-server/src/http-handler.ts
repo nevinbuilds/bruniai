@@ -289,19 +289,38 @@ export function createBruniAppMcpAuthVerifier(
   internalSecret: string,
 ): McpAuthVerifier {
   return async (token: string) => {
-    const response = await fetch(`${appUrl}/api/internal/mcp/introspect`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${internalSecret}`,
-      },
-      body: JSON.stringify({
-        token,
-        requiredScopes: ["reports:create"],
-      }),
-    });
+    const introspectionUrl = `${appUrl}/api/internal/mcp/introspect`;
+    let response: Response;
+
+    try {
+      response = await fetch(introspectionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${internalSecret}`,
+        },
+        body: JSON.stringify({
+          token,
+          requiredScopes: ["reports:create"],
+        }),
+      });
+    } catch (error) {
+      console.error("[MCP Auth] Failed to call Bruni app introspection", {
+        appUrl,
+        introspectionUrl,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
 
     if (!response.ok) {
+      const responseText = await response.text().catch(() => "");
+      console.error("[MCP Auth] Bruni app introspection rejected token", {
+        appUrl,
+        introspectionUrl,
+        status: response.status,
+        body: responseText.slice(0, 500),
+      });
       return null;
     }
 
@@ -314,6 +333,13 @@ export function createBruniAppMcpAuthVerifier(
       projectId?: string;
     };
     if (!body?.active || !body.userId || !body.tokenId) {
+      console.error("[MCP Auth] Bruni app introspection returned inactive token", {
+        appUrl,
+        introspectionUrl,
+        active: body?.active ?? null,
+        hasUserId: Boolean(body?.userId),
+        hasTokenId: Boolean(body?.tokenId),
+      });
       return null;
     }
 
