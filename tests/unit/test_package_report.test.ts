@@ -212,6 +212,7 @@ describe("bruniai package report API", () => {
       baseUrl: "https://example.com",
       previewUrl: "https://preview.example.com",
       bruniApiUrl: "https://app.brunivisual.com/api/internal/mcp/tests",
+      mcpToken: "bruni_mcp_test",
       mcpInternalSecret: "internal-secret",
       mcpAuthContext: {
         userId: "user-123",
@@ -230,18 +231,12 @@ describe("bruniai package report API", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          Authorization: "Bearer internal-secret",
+          Authorization: "Bearer bruni_mcp_test",
         }),
       }),
     );
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(
-      expect.objectContaining({
-        identity: {
-          userId: "user-123",
-          tokenId: "token-123",
-          scopes: ["reports:create"],
-        },
-      }),
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty(
+      "identity",
     );
   });
 });

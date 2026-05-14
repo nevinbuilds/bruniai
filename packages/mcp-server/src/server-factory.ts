@@ -176,7 +176,7 @@ async function tryGetReportUrl(
   const bruniAppUrl = process.env.BRUNI_APP_URL?.replace(/\/$/, "");
   const mcpInternalSecret = process.env.BRUNI_MCP_INTERNAL_SECRET;
   const bruniToken = process.env.BRUNI_TOKEN;
-  const hasMcpReportAuth = Boolean(authContext && bruniAppUrl && mcpInternalSecret);
+  const hasMcpReportAuth = Boolean(authContext?.mcpToken && bruniAppUrl);
 
   if (!hasMcpReportAuth && !bruniToken) {
     return null;
@@ -190,6 +190,7 @@ async function tryGetReportUrl(
       previewUrl,
       bruniToken,
       mcpAuthContext: hasMcpReportAuth ? authContext : undefined,
+      mcpToken: hasMcpReportAuth ? authContext?.mcpToken : undefined,
       mcpInternalSecret: hasMcpReportAuth ? mcpInternalSecret : undefined,
       bruniApiUrl: hasMcpReportAuth
         ? `${bruniAppUrl}/api/internal/mcp/tests`

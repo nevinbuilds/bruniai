@@ -118,7 +118,13 @@ describe("HTTP MCP handler", () => {
 
     await handler(req as never, res as never);
 
-    expect(serverFactory).toHaveBeenCalledWith(comparisonService, authContext);
+    expect(serverFactory).toHaveBeenCalledWith(
+      comparisonService,
+      expect.objectContaining({
+        ...authContext,
+        mcpToken: "bruni_mcp_test",
+      }),
+    );
     expect(handleRequest).toHaveBeenCalledWith(req, res, req.body);
     expect(res.statusCode).toBe(200);
   });

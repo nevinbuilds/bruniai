@@ -22,6 +22,7 @@ export interface SendReportRequest {
   baseUrl: string;
   previewUrl: string;
   bruniToken?: string;
+  mcpToken?: string;
   mcpAuthContext?: McpAuthContext;
   mcpInternalSecret?: string;
   bruniApiUrl?: string;
@@ -34,6 +35,7 @@ export interface McpAuthContext {
   userId: string;
   tokenId: string;
   scopes: string[];
+  mcpToken?: string;
   teamId?: string;
   projectId?: string;
 }
